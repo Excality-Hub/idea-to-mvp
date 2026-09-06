@@ -16,6 +16,7 @@ export interface OrchestratorParams {
   repoName: string;
   starterDir: string;
   workDir: string;
+  githubToken: string;
 }
 
 export interface OrchestratorDeps {
@@ -97,10 +98,10 @@ export async function runOrchestrator(
 
     currentStage = "developer";
     eventBus.emit(stageEvent(currentStage, "running", "Implementing the plan"));
-    await git.cloneRepo(repo.cloneUrl, params.workDir);
+    await git.cloneRepo(repo.cloneUrl, params.workDir, params.githubToken);
     await git.createAndCheckoutBranch(params.workDir, architectOutput.branchName);
     const developerOutput = await agents.developer(architectOutput.issueBody, params.workDir);
-    await git.pushBranch(params.workDir, architectOutput.branchName);
+    await git.pushBranch(params.workDir, architectOutput.branchName, params.githubToken);
     eventBus.emit(stageEvent(currentStage, "done", developerOutput.prTitle));
 
     currentStage = "open_pr";
@@ -125,7 +126,7 @@ export async function runOrchestrator(
     currentStage = "post_review";
     eventBus.emit(stageEvent(currentStage, "running", "Posting review comment"));
     await github.postPrComment(params.owner, params.repoName, pr.number, formatQaComment(qaOutput));
-    eventBus.emit(stageEvent(currentStage, "done", ""));
+    eventBus.emit(stageEvent(currentStage, "done", "posted"));
 
     const hasCritical = qaOutput.findings.some((f) => f.severity === "critical");
     if (hasCritical) {
@@ -136,7 +137,7 @@ export async function runOrchestrator(
     currentStage = "merge";
     eventBus.emit(stageEvent(currentStage, "running", "Merging pull request"));
     await github.mergePullRequest(params.owner, params.repoName, pr.number);
-    eventBus.emit(stageEvent(currentStage, "done", ""));
+    eventBus.emit(stageEvent(currentStage, "done", "merged"));
 
     currentStage = "deploy";
     eventBus.emit(stageEvent(currentStage, "running", "Deploying to Render"));

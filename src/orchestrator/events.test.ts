@@ -43,4 +43,25 @@ describe("RunEventBus", () => {
 
     expect(listener).not.toHaveBeenCalled();
   });
+
+  it("replays previously emitted events to a listener that subscribes late", () => {
+    const bus = new RunEventBus();
+    bus.emit(sampleEvent);
+
+    const lateListener = vi.fn();
+    bus.onEvent(lateListener);
+
+    expect(lateListener).toHaveBeenCalledTimes(1);
+    expect(lateListener).toHaveBeenCalledWith(sampleEvent);
+  });
+
+  it("does not double-deliver a buffered event to a listener that was already subscribed", () => {
+    const bus = new RunEventBus();
+    const earlyListener = vi.fn();
+    bus.onEvent(earlyListener);
+
+    bus.emit(sampleEvent);
+
+    expect(earlyListener).toHaveBeenCalledTimes(1);
+  });
 });

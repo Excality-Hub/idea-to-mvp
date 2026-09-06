@@ -10,5 +10,15 @@ source.onmessage = (event) => {
     stageElements.set(data.stage, item);
     list.appendChild(item);
   }
-  item.textContent = `${data.stage}: ${data.status} - ${data.message}`;
+  item.textContent = "";
+  item.appendChild(document.createTextNode(`${data.stage}: ${data.status} - `));
+  if (typeof data.message === "string" && /^https?:\/\//.test(data.message)) {
+    const link = document.createElement("a");
+    link.href = data.message;
+    link.target = "_blank";
+    link.textContent = data.message;
+    item.appendChild(link);
+  } else {
+    item.appendChild(document.createTextNode(data.message));
+  }
 };

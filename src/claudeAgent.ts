@@ -7,6 +7,9 @@ export interface RunClaudeAgentParams {
   allowedTools: string[];
 }
 
+export const CLAUDE_AGENT_TIMEOUT_MS = 600_000;
+export const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+
 export function runClaudeAgent(params: RunClaudeAgentParams): Promise<string> {
   const { prompt, cwd, allowedTools } = params;
   return new Promise((resolve, reject) => {
@@ -14,11 +17,21 @@ export function runClaudeAgent(params: RunClaudeAgentParams): Promise<string> {
     if (allowedTools.length > 0) {
       args.push("--allowedTools", allowedTools.join(" "));
     }
-    const child = spawn("claude", args, { cwd });
+    const child = spawn("claude", args, { cwd, timeout: CLAUDE_AGENT_TIMEOUT_MS });
 
     let stdout = "";
     let stderr = "";
+    let stdoutBytes = 0;
+    let outputLimitExceeded = false;
     child.stdout.on("data", (chunk: Buffer) => {
+      if (outputLimitExceeded) return;
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > MAX_OUTPUT_BYTES) {
+        outputLimitExceeded = true;
+        child.kill();
+        reject(new Error(`claude -p output exceeded ${MAX_OUTPUT_BYTES} byte limit`));
+        return;
+      }
       stdout += chunk.toString();
     });
     child.stderr.on("data", (chunk: Buffer) => {
@@ -26,6 +39,7 @@ export function runClaudeAgent(params: RunClaudeAgentParams): Promise<string> {
     });
     child.on("error", (error) => reject(error));
     child.on("close", (code) => {
+      if (outputLimitExceeded) return;
       if (code !== 0) {
         reject(new Error(`claude -p exited with code ${code}: ${stderr}`));
         return;
@@ -44,14 +58,15 @@ export function extractClaudeResultText(rawOutput: string): string {
 }
 
 export function parseJsonBlock<T>(text: string, schema: z.ZodType<T>): T {
-  const match = text.match(/```json\s*([\s\S]*?)```/);
-  if (!match) {
+  const matches = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
+  if (matches.length === 0) {
     throw new Error("No fenced ```json block found in agent output");
   }
+  const lastMatch = matches[matches.length - 1];
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(match[1]);
+    parsed = JSON.parse(lastMatch[1]);
   } catch (error) {
     throw new Error(`Fenced JSON block was not valid JSON: ${(error as Error).message}`);
   }

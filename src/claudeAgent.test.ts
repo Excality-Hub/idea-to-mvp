@@ -8,12 +8,23 @@ vi.mock("node:child_process", () => ({
 }));
 
 import { spawn } from "node:child_process";
-import { extractClaudeResultText, parseJsonBlock, runClaudeAgent } from "./claudeAgent.js";
+import {
+  CLAUDE_AGENT_TIMEOUT_MS,
+  extractClaudeResultText,
+  MAX_OUTPUT_BYTES,
+  parseJsonBlock,
+  runClaudeAgent,
+} from "./claudeAgent.js";
 
 function makeFakeChild() {
-  const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    kill: ReturnType<typeof vi.fn>;
+  };
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
+  child.kill = vi.fn();
   return child;
 }
 
@@ -27,6 +38,22 @@ describe("runClaudeAgent", () => {
     child.emit("close", 0);
 
     await expect(promise).resolves.toBe('{"result":"hi"}');
+    expect(spawn).toHaveBeenCalledWith(
+      "claude",
+      expect.any(Array),
+      expect.objectContaining({ cwd: "/tmp/repo", timeout: CLAUDE_AGENT_TIMEOUT_MS }),
+    );
+  });
+
+  it("kills the process and rejects when stdout exceeds the output byte limit", async () => {
+    const child = makeFakeChild();
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const promise = runClaudeAgent({ prompt: "do it", cwd: "/tmp/repo", allowedTools: [] });
+    child.stdout.emit("data", Buffer.alloc(MAX_OUTPUT_BYTES + 1));
+
+    await expect(promise).rejects.toThrow(`claude -p output exceeded ${MAX_OUTPUT_BYTES} byte limit`);
+    expect(child.kill).toHaveBeenCalled();
   });
 
   it("rejects with stderr when the process exits non-zero", async () => {
@@ -77,5 +104,10 @@ describe("parseJsonBlock", () => {
     expect(() => parseJsonBlock('```json\n{"ok": "not a boolean"}\n```', schema)).toThrow(
       "Agent output JSON did not match expected schema",
     );
+  });
+
+  it("uses the last fenced json block when there are multiple", () => {
+    const text = 'First attempt:\n```json\n{"ok": false}\n```\nActually, final answer:\n```json\n{"ok": true}\n```';
+    expect(parseJsonBlock(text, schema)).toEqual({ ok: true });
   });
 });

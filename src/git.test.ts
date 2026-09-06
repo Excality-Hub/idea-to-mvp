@@ -19,12 +19,18 @@ function mockExecFileOnce(stdout: string) {
 }
 
 describe("git helper", () => {
-  it("cloneRepo runs git clone with the url and target dir", async () => {
+  it("cloneRepo runs git clone with the url and target dir, authenticated with a bearer token header", async () => {
     mockExecFileOnce("");
-    await cloneRepo("git@github.com:org/repo.git", "/tmp/work");
+    await cloneRepo("git@github.com:org/repo.git", "/tmp/work", "test-token");
     expect(execFile).toHaveBeenCalledWith(
       "git",
-      ["clone", "git@github.com:org/repo.git", "/tmp/work"],
+      [
+        "-c",
+        "http.extraheader=AUTHORIZATION: bearer test-token",
+        "clone",
+        "git@github.com:org/repo.git",
+        "/tmp/work",
+      ],
       expect.any(Function),
     );
   });
@@ -40,12 +46,19 @@ describe("git helper", () => {
     );
   });
 
-  it("pushBranch runs git push -u origin <branch> in the repo dir", async () => {
+  it("pushBranch runs git push -u origin <branch> in the repo dir, authenticated with a bearer token header", async () => {
     mockExecFileOnce("");
-    await pushBranch("/tmp/work", "feature/x");
+    await pushBranch("/tmp/work", "feature/x", "test-token");
     expect(execFile).toHaveBeenCalledWith(
       "git",
-      ["push", "-u", "origin", "feature/x"],
+      [
+        "-c",
+        "http.extraheader=AUTHORIZATION: bearer test-token",
+        "push",
+        "-u",
+        "origin",
+        "feature/x",
+      ],
       { cwd: "/tmp/work" },
       expect.any(Function),
     );

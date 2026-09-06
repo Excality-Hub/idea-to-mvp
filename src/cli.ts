@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // src/cli.ts
-import { mkdtempSync, readFileSync } from "node:fs";
+import "dotenv/config";
+import { mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -59,6 +60,7 @@ async function main(): Promise<void> {
       repoName,
       starterDir: fileURLToPath(new URL("../templates/starter", import.meta.url)),
       workDir,
+      githubToken: config.githubToken,
     },
     {
       eventBus,
@@ -85,7 +87,16 @@ async function main(): Promise<void> {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+function resolveEntryPointUrl(): string {
+  if (!process.argv[1]) return "";
+  try {
+    return pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return pathToFileURL(process.argv[1]).href;
+  }
+}
+
+if (import.meta.url === resolveEntryPointUrl()) {
   main().catch((error) => {
     console.error(error);
     process.exitCode = 1;

@@ -8,6 +8,7 @@ const params: OrchestratorParams = {
   repoName: "idea-to-mvp-app-1",
   starterDir: "/templates/starter",
   workDir: "/tmp/work",
+  githubToken: "test-token",
 };
 
 function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {

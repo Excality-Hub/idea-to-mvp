@@ -4,16 +4,26 @@ import { promisify } from "node:util";
 // Use promisify which has built-in support for execFile's multi-value callback
 const execFileAsync = promisify(execFileCallback);
 
-export async function cloneRepo(cloneUrl: string, targetDir: string): Promise<void> {
-  await execFileAsync("git", ["clone", cloneUrl, targetDir]);
+export async function cloneRepo(cloneUrl: string, targetDir: string, token: string): Promise<void> {
+  await execFileAsync("git", [
+    "-c",
+    `http.extraheader=AUTHORIZATION: bearer ${token}`,
+    "clone",
+    cloneUrl,
+    targetDir,
+  ]);
 }
 
 export async function createAndCheckoutBranch(repoDir: string, branchName: string): Promise<void> {
   await execFileAsync("git", ["checkout", "-b", branchName], { cwd: repoDir });
 }
 
-export async function pushBranch(repoDir: string, branchName: string): Promise<void> {
-  await execFileAsync("git", ["push", "-u", "origin", branchName], { cwd: repoDir });
+export async function pushBranch(repoDir: string, branchName: string, token: string): Promise<void> {
+  await execFileAsync(
+    "git",
+    ["-c", `http.extraheader=AUTHORIZATION: bearer ${token}`, "push", "-u", "origin", branchName],
+    { cwd: repoDir },
+  );
 }
 
 export async function diffAgainstBase(repoDir: string, baseBranch: string): Promise<string> {
