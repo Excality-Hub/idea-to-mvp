@@ -131,4 +131,20 @@ describe("runOrchestrator", () => {
 
     expect(outcome).toEqual({ status: "failed", stage: "developer", error: "claude -p crashed" });
   });
+
+  it("proceeds through merge and deploy when QA findings are present but none are critical", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.qa).mockResolvedValue({
+      verdict: "pass",
+      findings: [
+        { severity: "major", category: "correctness", summary: "off-by-one in pagination", file: "server.js", line: 22 },
+      ],
+    });
+
+    const outcome = await runOrchestrator(params, deps);
+
+    expect(outcome.status).toBe("deployed");
+    expect(deps.github.mergePullRequest).toHaveBeenCalledWith("org", "idea-to-mvp-app-1", 2);
+    expect(deps.render.createService).toHaveBeenCalled();
+  });
 });
