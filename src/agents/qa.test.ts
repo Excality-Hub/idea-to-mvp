@@ -39,4 +39,18 @@ describe("runQaAgent", () => {
       allowedTools: ["Read"],
     });
   });
+
+  it("forwards the abort signal to runClaudeAgent", async () => {
+    const rawOutput = JSON.stringify({
+      result: `Reviewed.\n\`\`\`json\n${JSON.stringify(fakeQaJson)}\n\`\`\``,
+    });
+    vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
+    const controller = new AbortController();
+
+    await runQaAgent("diff --git a/server.js b/server.js", "/tmp/work", controller.signal);
+
+    expect(runClaudeAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
 });

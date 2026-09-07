@@ -18,12 +18,17 @@ export function buildDeveloperPrompt(issueBody: string): string {
   ].join("\n");
 }
 
-export async function runDeveloperAgent(issueBody: string, cwd: string): Promise<DeveloperOutput> {
+export async function runDeveloperAgent(
+  issueBody: string,
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<DeveloperOutput> {
   const prompt = buildDeveloperPrompt(issueBody);
   const rawOutput = await runClaudeAgent({
     prompt,
     cwd,
     allowedTools: ["Bash", "Read", "Write", "Edit"],
+    signal,
   });
   const resultText = extractClaudeResultText(rawOutput);
   return parseJsonBlock(resultText, DeveloperOutputSchema);

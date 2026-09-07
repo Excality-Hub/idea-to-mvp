@@ -37,4 +37,18 @@ describe("runDeveloperAgent", () => {
       allowedTools: ["Bash", "Read", "Write", "Edit"],
     });
   });
+
+  it("forwards the abort signal to runClaudeAgent", async () => {
+    const rawOutput = JSON.stringify({
+      result: `Done.\n\`\`\`json\n${JSON.stringify(fakeDeveloperJson)}\n\`\`\``,
+    });
+    vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
+    const controller = new AbortController();
+
+    await runDeveloperAgent("Implement add/complete task endpoints.", "/tmp/work", controller.signal);
+
+    expect(runClaudeAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
 });

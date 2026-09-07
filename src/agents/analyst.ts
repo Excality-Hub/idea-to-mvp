@@ -17,9 +17,9 @@ export function buildAnalystPrompt(ideaText: string): string {
   ].join("\n");
 }
 
-export async function runAnalystAgent(ideaText: string, cwd: string): Promise<AnalystOutput> {
+export async function runAnalystAgent(ideaText: string, cwd: string, signal?: AbortSignal): Promise<AnalystOutput> {
   const prompt = buildAnalystPrompt(ideaText);
-  const rawOutput = await runClaudeAgent({ prompt, cwd, allowedTools: [] });
+  const rawOutput = await runClaudeAgent({ prompt, cwd, allowedTools: [], signal });
   const resultText = extractClaudeResultText(rawOutput);
   return parseJsonBlock(resultText, AnalystOutputSchema);
 }

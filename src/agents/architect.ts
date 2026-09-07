@@ -20,9 +20,13 @@ export function buildArchitectPrompt(analystOutput: AnalystOutput): string {
   ].join("\n");
 }
 
-export async function runArchitectAgent(analystOutput: AnalystOutput, cwd: string): Promise<ArchitectOutput> {
+export async function runArchitectAgent(
+  analystOutput: AnalystOutput,
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<ArchitectOutput> {
   const prompt = buildArchitectPrompt(analystOutput);
-  const rawOutput = await runClaudeAgent({ prompt, cwd, allowedTools: [] });
+  const rawOutput = await runClaudeAgent({ prompt, cwd, allowedTools: [], signal });
   const resultText = extractClaudeResultText(rawOutput);
   return parseJsonBlock(resultText, ArchitectOutputSchema);
 }

@@ -47,4 +47,18 @@ describe("runArchitectAgent", () => {
       allowedTools: [],
     });
   });
+
+  it("forwards the abort signal to runClaudeAgent", async () => {
+    const rawOutput = JSON.stringify({
+      result: `Plan below.\n\`\`\`json\n${JSON.stringify(fakeArchitectJson)}\n\`\`\``,
+    });
+    vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
+    const controller = new AbortController();
+
+    await runArchitectAgent(analystOutput, "/tmp/work", controller.signal);
+
+    expect(runClaudeAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
 });
