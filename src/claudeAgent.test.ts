@@ -1,6 +1,6 @@
 // src/claudeAgent.test.ts
 import { EventEmitter } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 vi.mock("node:child_process", () => ({
@@ -29,6 +29,16 @@ function makeFakeChild() {
 }
 
 describe("runClaudeAgent", () => {
+  const originalCliCommand = process.env.CLAUDE_CLI_COMMAND;
+
+  afterEach(() => {
+    if (originalCliCommand === undefined) {
+      delete process.env.CLAUDE_CLI_COMMAND;
+    } else {
+      process.env.CLAUDE_CLI_COMMAND = originalCliCommand;
+    }
+  });
+
   it("resolves with stdout when the process exits 0", async () => {
     const child = makeFakeChild();
     vi.mocked(spawn).mockReturnValue(child as never);
@@ -42,6 +52,23 @@ describe("runClaudeAgent", () => {
       "claude",
       expect.any(Array),
       expect.objectContaining({ cwd: "/tmp/repo", timeout: CLAUDE_AGENT_TIMEOUT_MS }),
+    );
+  });
+
+  it("spawns CLAUDE_CLI_COMMAND instead of the default when set", async () => {
+    process.env.CLAUDE_CLI_COMMAND = "claude-personal";
+    const child = makeFakeChild();
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const promise = runClaudeAgent({ prompt: "do it", cwd: "/tmp/repo", allowedTools: [] });
+    child.stdout.emit("data", Buffer.from('{"result":"hi"}'));
+    child.emit("close", 0);
+
+    await promise;
+    expect(spawn).toHaveBeenCalledWith(
+      "claude-personal",
+      expect.any(Array),
+      expect.objectContaining({ cwd: "/tmp/repo" }),
     );
   });
 

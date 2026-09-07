@@ -24,6 +24,7 @@ design.
 | `TARGET_GITHUB_OWNER` | yes | GitHub **organization** new demo repos are created under — use a sandbox org, not a real portfolio org |
 | `RENDER_API_KEY` | yes | Create and deploy the Render service |
 | `PORT` | no (default 3000) | Local dashboard HTTP port |
+| `CLAUDE_CLI_COMMAND` | no (default `claude`) | Which CLI binary to spawn for the Analyst/Architect/Developer/QA agents — set this if you invoke Claude Code under a different command (e.g. a separate profile like `claude-personal`) |
 
 ## Manual demo
 

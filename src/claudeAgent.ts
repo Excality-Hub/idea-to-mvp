@@ -10,6 +10,10 @@ export interface RunClaudeAgentParams {
 export const CLAUDE_AGENT_TIMEOUT_MS = 600_000;
 export const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 
+function resolveClaudeCommand(): string {
+  return process.env.CLAUDE_CLI_COMMAND || "claude";
+}
+
 export function runClaudeAgent(params: RunClaudeAgentParams): Promise<string> {
   const { prompt, cwd, allowedTools } = params;
   return new Promise((resolve, reject) => {
@@ -17,7 +21,7 @@ export function runClaudeAgent(params: RunClaudeAgentParams): Promise<string> {
     if (allowedTools.length > 0) {
       args.push("--allowedTools", allowedTools.join(" "));
     }
-    const child = spawn("claude", args, { cwd, timeout: CLAUDE_AGENT_TIMEOUT_MS });
+    const child = spawn(resolveClaudeCommand(), args, { cwd, timeout: CLAUDE_AGENT_TIMEOUT_MS });
 
     let stdout = "";
     let stderr = "";
