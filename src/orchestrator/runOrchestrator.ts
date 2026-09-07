@@ -78,12 +78,12 @@ export async function runOrchestrator(
 
   async function commitTracingPack(outcome: string): Promise<void> {
     if (!repo) return;
-    eventBus.emit(
-      stageEvent("tracing_pack", "running", "Committing the tracing pack to the repo", {
-        input: { path: TRACING_PACK_PATH },
-      }),
-    );
     try {
+      eventBus.emit(
+        stageEvent("tracing_pack", "running", "Committing the tracing pack to the repo", {
+          input: { path: TRACING_PACK_PATH },
+        }),
+      );
       const markdown = formatTracingPackMarkdown(tracingEntries, outcome);
       const result = await github.commitFile(params.owner, params.repoName, TRACING_PACK_PATH, markdown, BASE_BRANCH);
       eventBus.emit(
@@ -170,6 +170,7 @@ export async function runOrchestrator(
     tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: pr });
 
     currentStage = "qa";
+    currentInput = undefined;
     eventBus.emit(stageEvent(currentStage, "running", "Reviewing the pull request"));
     const diff = await git.diffAgainstBase(params.workDir, BASE_BRANCH);
     currentInput = { diff };
@@ -187,7 +188,11 @@ export async function runOrchestrator(
 
     const hasCritical = qaOutput.findings.some((f) => f.severity === "critical");
     if (hasCritical) {
-      eventBus.emit(stageEvent("merge", "blocked", "Critical finding(s) - deploy skipped"));
+      eventBus.emit(
+        stageEvent("merge", "blocked", "Critical finding(s) - deploy skipped", {
+          output: { findings: qaOutput.findings },
+        }),
+      );
       tracingEntries.push({ stage: "merge", status: "blocked", output: { findings: qaOutput.findings } });
       await commitTracingPack("blocked");
       return { status: "blocked", findings: qaOutput.findings, prUrl: pr.htmlUrl };

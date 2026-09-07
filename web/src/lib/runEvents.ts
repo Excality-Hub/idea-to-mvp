@@ -25,7 +25,7 @@ export function deriveStageStatus(
 export function deriveOverallStatus(eventsByStage: EventsByStage): OverallStatus {
   const allEvents = Object.values(eventsByStage).flat();
   if (allEvents.length === 0) return "idle";
-  if (allEvents.some((e) => e.status === "failed")) return "failed";
+  if (allEvents.some((e) => e.status === "failed" && e.stage !== "tracing_pack")) return "failed";
   if (deriveStageStatus(eventsByStage.merge) === "blocked") return "blocked";
   if (deriveStageStatus(eventsByStage.deploy) === "done") return "deployed";
   return "running";

@@ -89,6 +89,15 @@ describe("deriveOverallStatus", () => {
     ).toBe("deployed");
   });
 
+  it("is deployed, not failed, when only the bookkeeping tracing_pack stage failed on an otherwise-successful run", () => {
+    expect(
+      deriveOverallStatus({
+        deploy: [event({ stage: "deploy", status: "done" })],
+        tracing_pack: [event({ stage: "tracing_pack", status: "failed" })],
+      }),
+    ).toBe("deployed");
+  });
+
   it("failed takes priority over a later blocked/deployed event", () => {
     expect(
       deriveOverallStatus({

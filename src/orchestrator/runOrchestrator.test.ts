@@ -189,6 +189,22 @@ describe("runOrchestrator", () => {
     expect(content).toContain("## developer");
   });
 
+  it("records the qa stage's tracing-pack input as none (not the previous open_pr stage's input) when qa fails before computing the diff", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.git.diffAgainstBase).mockRejectedValue(new Error("git diff failed"));
+
+    const outcome = await runOrchestrator(params, deps);
+
+    expect(outcome).toEqual({ status: "failed", stage: "qa", error: "git diff failed" });
+    expect(deps.github.commitFile).toHaveBeenCalledTimes(1);
+    const [, , , content] = vi.mocked(deps.github.commitFile).mock.calls[0];
+    const qaSection = content.slice(content.indexOf("## qa"));
+    // The qa entry's input must not be open_pr's carried-over shape.
+    expect(qaSection).not.toContain('"head"');
+    expect(qaSection).not.toContain('"base"');
+    expect(qaSection).toContain("**Input**\n\n_none_");
+  });
+
   it("does not commit a tracing pack when the repo itself was never created", async () => {
     const deps = makeDeps();
     vi.mocked(deps.github.createRepoFromStarter).mockRejectedValue(new Error("repo already exists"));
