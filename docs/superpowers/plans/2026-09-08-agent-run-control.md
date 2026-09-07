@@ -970,7 +970,18 @@ In `src/orchestrator/runOrchestrator.ts`, add the import at the top (after the e
 import { AgentStoppedError } from "../claudeAgent.js";
 ```
 
-Replace the `StageStep` interface, the `STAGE_STEPS` array, and the `runOrchestrator` function (everything from `interface StageStep {` down to the closing brace of `runOrchestrator`) with the following. Everything above `interface StageStep` (imports, `OrchestratorParams`, `OrchestratorDeps`, the old `RunOutcome`, `BASE_BRANCH`, `TRACING_PACK_PATH`, `stageEvent`, `formatQaComment`, `PipelineContext`) stays exactly as Task 4 left it, except `RunOutcome` itself, which also needs replacing:
+First, delete the existing `RunOutcome` type entirely (it currently sits between `OrchestratorDeps` and `BASE_BRANCH`):
+
+```ts
+export type RunOutcome =
+  | { status: "deployed"; url: string; prUrl: string }
+  | { status: "blocked"; findings: QAFinding[]; prUrl: string }
+  | { status: "failed"; stage: StageName; error: string };
+```
+
+Its replacement is included in the next block below, so deleting it here (rather than leaving it in place) avoids ending up with two conflicting `RunOutcome` declarations in the file.
+
+Now replace the `StageStep` interface, the `STAGE_STEPS` array, and the `runOrchestrator` function (everything from `interface StageStep {` down to the closing brace of `runOrchestrator`) with the following block, which starts by reintroducing `RunOutcome` (now with its fourth variant) alongside the new `ResumeState` type. Everything else above `interface StageStep` (imports, `OrchestratorParams`, `OrchestratorDeps`, `BASE_BRANCH`, `TRACING_PACK_PATH`, `stageEvent`, `formatQaComment`, `PipelineContext`) stays exactly as Task 4 left it:
 
 ```ts
 export interface ResumeState {
@@ -1985,7 +1996,7 @@ git commit -m "refactor: wire the CLI through RunController instead of calling r
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `web/src/components/StageNode.test.tsx`. First, add the import:
+Add to `web/src/components/StageNode.test.tsx`. First, add the import, and add `vi` to the existing vitest import (change `import { describe, expect, it } from "vitest";` to `import { describe, expect, it, vi } from "vitest";`):
 
 ```ts
 import userEvent from "@testing-library/user-event";
