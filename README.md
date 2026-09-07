@@ -8,13 +8,14 @@ design.
 
 ## Setup
 
-1. `npm install`
+1. `npm install` (backend) and `npm install --prefix web` (dashboard UI).
 2. Copy `.env.example` to `.env` and fill in the values (see table below).
 3. Ensure the `claude` CLI is installed and logged in on this machine —
    idea-to-mvp shells out to `claude -p` for the Analyst, Architect,
    Developer, and QA stages; no Anthropic API key is configured by this
    repo itself.
-4. `npm run build`
+4. `npm run build` — compiles the backend and builds the dashboard UI
+   (`web/dist`), which the dashboard server serves statically.
 
 ## Environment variables
 
@@ -34,10 +35,20 @@ design.
    ```
 2. Run it: `node dist/cli.js run ./idea.md` (or `npm run dev -- run ./idea.md`).
 3. A browser tab opens automatically at `http://localhost:3000` showing
-   each stage light up as it runs, with links to the GitHub repo, issue,
-   and PR as they're created.
+   the Workflows dashboard: each of the 10 pipeline stages as a card that
+   lights up live as it runs. Click any stage to open its full event log
+   (timestamps + messages, including links to the GitHub repo, issue, and
+   PR as they're created).
 4. The run ends either on a live Render URL (QA passed) or a "blocked"
    state linking to the PR (QA found a critical issue).
+
+### Iterating on the dashboard UI
+
+The dashboard is a React + TypeScript + shadcn/ui app in `web/`. For a
+fast edit-reload loop against a real run's event stream, run the backend
+(`npm run dev -- run ./idea.md`) and, in a second terminal,
+`npm run dev --prefix web` — Vite proxies `/events` to the backend on
+`:3000` and serves the UI with HMR on `:5173`.
 
 ## Testing
 

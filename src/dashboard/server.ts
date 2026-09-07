@@ -19,7 +19,7 @@ export function createEventsHandler(eventBus: RunEventBus): express.RequestHandl
 
 export function createDashboardServer(eventBus: RunEventBus): express.Express {
   const app = express();
-  app.use(express.static(fileURLToPath(new URL("../../public", import.meta.url))));
+  app.use(express.static(fileURLToPath(new URL("../../web/dist", import.meta.url))));
   app.get("/events", createEventsHandler(eventBus));
   return app;
 }

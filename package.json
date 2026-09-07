@@ -7,8 +7,9 @@
     "idea-to-mvp": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build --prefix web",
     "test": "vitest run",
+    "test:web": "npm test --prefix web",
     "dev": "tsx src/cli.ts"
   },
   "dependencies": {
