@@ -1,0 +1,29 @@
+{
+  "name": "idea-to-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "idea-to-mvp": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc && npm run build --prefix web",
+    "test": "vitest run",
+    "test:web": "npm test --prefix web",
+    "dev": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@octokit/rest": "^21.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "open": "^10.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

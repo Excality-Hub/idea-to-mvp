@@ -1,0 +1,136 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Inter Variable', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono Variable', 'Fira Code', monospace;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * Palette sourced from excality.com's own published CSS (light theme,
+ * teal accent scale, navy/steel secondary scale, Inter + JetBrains Mono).
+ */
+:root {
+    --background: #f7f9fa;
+    --foreground: #1f2933;
+    --card: #ffffff;
+    --card-foreground: #1f2933;
+    --popover: #ffffff;
+    --popover-foreground: #1f2933;
+    --primary: #149180;
+    --primary-foreground: #ffffff;
+    --secondary: #f0f4f8;
+    --secondary-foreground: #102a43;
+    --muted: #f0f4f8;
+    --muted-foreground: #627d98;
+    --accent: #d9e2ec;
+    --accent-foreground: #102a43;
+    --destructive: #e12d39;
+    --destructive-foreground: #ffffff;
+    --success: #1abba4;
+    --success-foreground: #ffffff;
+    --warning: #c98a1f;
+    --warning-foreground: #ffffff;
+    --border: #d9e2ec;
+    --input: #d9e2ec;
+    --ring: #1abba4;
+    --radius: 0.75rem;
+    --sidebar: #102a43;
+    --sidebar-foreground: #bcccdc;
+    --sidebar-primary: #1abba4;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #243b53;
+    --sidebar-accent-foreground: #f0f4f8;
+    --sidebar-border: #243b53;
+    --sidebar-ring: #1abba4;
+}
+
+.dark {
+    --background: #102a43;
+    --foreground: #f0f4f8;
+    --card: #16324f;
+    --card-foreground: #f0f4f8;
+    --popover: #16324f;
+    --popover-foreground: #f0f4f8;
+    --primary: #60ddcc;
+    --primary-foreground: #102a43;
+    --secondary: #243b53;
+    --secondary-foreground: #f0f4f8;
+    --muted: #243b53;
+    --muted-foreground: #9fb3c8;
+    --accent: #334e68;
+    --accent-foreground: #f0f4f8;
+    --destructive: #ff6b6b;
+    --destructive-foreground: #102a43;
+    --success: #60ddcc;
+    --success-foreground: #102a43;
+    --warning: #f0b429;
+    --warning-foreground: #102a43;
+    --border: #334e68;
+    --input: #334e68;
+    --ring: #60ddcc;
+    --sidebar: #0a1e30;
+    --sidebar-foreground: #bcccdc;
+    --sidebar-primary: #60ddcc;
+    --sidebar-primary-foreground: #102a43;
+    --sidebar-accent: #16324f;
+    --sidebar-accent-foreground: #f0f4f8;
+    --sidebar-border: #16324f;
+    --sidebar-ring: #60ddcc;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+}

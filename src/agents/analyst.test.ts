@@ -1,0 +1,43 @@
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../claudeAgent.js", async () => {
+  const actual = await vi.importActual<typeof import("../claudeAgent.js")>("../claudeAgent.js");
+  return { ...actual, runClaudeAgent: vi.fn() };
+});
+
+import { runClaudeAgent } from "../claudeAgent.js";
+import { buildAnalystPrompt, runAnalystAgent } from "./analyst.js";
+
+const fakeAnalystJson = {
+  summary: "A todo app",
+  goals: ["let users track tasks"],
+  keyFeatures: ["add task", "mark done"],
+  nonGoals: ["auth"],
+  openQuestions: [],
+};
+
+describe("buildAnalystPrompt", () => {
+  it("includes the idea text and the expected output shape", () => {
+    const prompt = buildAnalystPrompt("Build a todo app");
+    expect(prompt).toContain("Build a todo app");
+    expect(prompt).toContain("openQuestions");
+  });
+});
+
+describe("runAnalystAgent", () => {
+  it("returns the parsed analyst output from the claude -p result", async () => {
+    const rawOutput = JSON.stringify({
+      result: `Some explanation.\n\`\`\`json\n${JSON.stringify(fakeAnalystJson)}\n\`\`\``,
+    });
+    vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
+
+    const result = await runAnalystAgent("Build a todo app", "/tmp/work");
+
+    expect(result).toEqual(fakeAnalystJson);
+    expect(runClaudeAgent).toHaveBeenCalledWith({
+      prompt: expect.stringContaining("Build a todo app"),
+      cwd: "/tmp/work",
+      allowedTools: [],
+    });
+  });
+});
