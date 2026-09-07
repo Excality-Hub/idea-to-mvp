@@ -16,7 +16,8 @@ describe("WorkflowsView", () => {
     render(<WorkflowsView eventsByStage={eventsByStage} />);
     expect(screen.getByText("Analyst")).toBeInTheDocument();
     expect(screen.getByText("Deploy")).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(10);
+    expect(screen.getAllByRole("button")).toHaveLength(11);
+    expect(screen.getByText("Tracing pack")).toBeInTheDocument();
   });
 
   it("opens the detail sheet with the stage's full log on click", async () => {

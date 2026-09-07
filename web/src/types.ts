@@ -11,7 +11,8 @@ export type StageName =
   | "qa"
   | "post_review"
   | "merge"
-  | "deploy";
+  | "deploy"
+  | "tracing_pack";
 
 export type StageStatus = "running" | "done" | "failed" | "blocked";
 
@@ -20,6 +21,8 @@ export interface RunEvent {
   status: StageStatus;
   message: string;
   timestamp: string;
+  input?: unknown;
+  output?: unknown;
 }
 
 export const STAGE_ORDER: StageName[] = [
@@ -33,6 +36,7 @@ export const STAGE_ORDER: StageName[] = [
   "post_review",
   "merge",
   "deploy",
+  "tracing_pack",
 ];
 
 export const STAGE_LABELS: Record<StageName, string> = {
@@ -46,6 +50,7 @@ export const STAGE_LABELS: Record<StageName, string> = {
   post_review: "Post review",
   merge: "Merge",
   deploy: "Deploy",
+  tracing_pack: "Tracing pack",
 };
 
 export type OverallStatus = "idle" | "running" | "deployed" | "blocked" | "failed";
