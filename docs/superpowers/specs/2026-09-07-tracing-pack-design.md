@@ -1,4 +1,4 @@
-# Evidence tracking: design
+# Tracing pack: design
 
 Status: approved, not yet implemented.
 
@@ -6,8 +6,8 @@ Status: approved, not yet implemented.
 
 Capture the actual input and output of every pipeline stage — not just a
 short status message — and (a) show it live in the dashboard, and (b)
-commit it as a human-readable `EVIDENCE.md` into the target repo at the
-end of the run, so the generated repo itself proves how it was built.
+commit it as a human-readable `TRACING_PACK.md` into the target repo at
+the end of the run, so the generated repo itself proves how it was built.
 
 ## Why
 
@@ -31,11 +31,12 @@ afterwards by opening the repo the pipeline produced.
   matches the existing "single run per process, in-memory" limitation
   noted in the dashboard design. The durable copy lives in the *target*
   repo, not here.
-- No incremental/per-stage commits to the target repo. One `EVIDENCE.md`
-  commit at the end of the run (see "Commit trigger" below) — not a
-  commit-per-stage trail.
+- No incremental/per-stage commits to the target repo. One
+  `TRACING_PACK.md` commit at the end of the run (see "Commit trigger"
+  below) — not a commit-per-stage trail.
 - No change to the existing QA-comment-on-PR flow (`post_review` stage)
-  — `EVIDENCE.md` is a separate, additional artifact, not a replacement.
+  — `TRACING_PACK.md` is a separate, additional artifact, not a
+  replacement.
 
 ## Architecture
 
@@ -47,12 +48,12 @@ runOrchestrator()
   │             ...call the existing agent/git/github function...
   │             eventBus.emit({ stage, status:"done", message, output })
   │
-  ├─ accumulate stageEvidence: EvidenceEntry[] as stages complete
+  ├─ accumulate tracingEntries: TracingPackEntry[] as stages complete
   │
   └─ on exit (deployed | blocked | failed-with-repo-created):
-        formatEvidenceMarkdown(stageEvidence, outcome)  → EVIDENCE.md text
-        github.commitFile(owner, repo, "EVIDENCE.md", text, base branch)
-        eventBus.emit({ stage:"evidence", status:"running"|"done"|"failed", ... })
+        formatTracingPackMarkdown(tracingEntries, outcome)  → TRACING_PACK.md text
+        github.commitFile(owner, repo, "TRACING_PACK.md", text, base branch)
+        eventBus.emit({ stage:"tracing_pack", status:"running"|"done"|"failed", ... })
 ```
 
 `RunEventBus` and the SSE transport (`src/dashboard/server.ts`) are
@@ -75,7 +76,7 @@ export interface RunEvent {
 }
 ```
 
-`StageName` gains a final value: `"evidence"`. `STAGE_ORDER` /
+`StageName` gains a final value: `"tracing_pack"`. `STAGE_ORDER` /
 `STAGE_LABELS` (backend and web) are updated to include it.
 
 Per-stage input/output, drawn from variables already in scope in
@@ -93,7 +94,7 @@ Per-stage input/output, drawn from variables already in scope in
 | `post_review` | `{ comment }` | `{ posted: true }` |
 | `merge` | `{ prNumber }` | `{ merged: true }` |
 | `deploy` | `{ name, repoUrl, branch }` | `{ url }` |
-| `evidence` | `{ path: "EVIDENCE.md" }` | `{ committed: true, sha }` |
+| `tracing_pack` | `{ path: "TRACING_PACK.md" }` | `{ committed: true, sha }` |
 
 `starterFilePaths` (not full file contents) keeps the `create_repo`
 payload small and focused on what's decision-relevant; template
@@ -108,40 +109,40 @@ files in `createRepoFromStarter`. Runs in all three exit paths:
 
 - **deployed** — after the `deploy` stage.
 - **blocked** — after the early return on a critical QA finding (deploy
-  is skipped, but the evidence up to `qa`/`post_review` is still
+  is skipped, but the tracing pack up to `qa`/`post_review` is still
   written).
 - **failed** — from the `catch` block, only if `create_repo` had already
-  completed (no repo to commit to otherwise). The evidence includes the
-  failed stage's error message as its `output`.
+  completed (no repo to commit to otherwise). The tracing pack includes
+  the failed stage's error message as its `output`.
 
-Because `EVIDENCE.md` is a new, independent file, committing it straight
-to `main` is safe even while a PR is still open/blocked for review — it
-never touches the same paths the PR's diff does.
+Because `TRACING_PACK.md` is a new, independent file, committing it
+straight to `main` is safe even while a PR is still open/blocked for
+review — it never touches the same paths the PR's diff does.
 
-## Evidence file format
+## Tracing pack file format
 
 Markdown, one `##` section per stage in run order, each with status,
 timestamp, and fenced-JSON `Input` / `Output` blocks. A new pure function
-`formatEvidenceMarkdown(entries: EvidenceEntry[], outcome: RunOutcome):
-string` in a new `src/orchestrator/evidence.ts` owns this — no
-orchestration logic, easy to unit test in isolation with hand-built
-`EvidenceEntry[]` fixtures.
+`formatTracingPackMarkdown(entries: TracingPackEntry[], outcome:
+RunOutcome): string` in a new `src/orchestrator/tracingPack.ts` owns this
+— no orchestration logic, easy to unit test in isolation with hand-built
+`TracingPackEntry[]` fixtures.
 
 ## Dashboard changes
 
 `StageDetailSheet` (`web/src/components/StageDetailSheet.tsx`) gains an
 `Input` / `Output` section per event (pretty-printed, scrollable JSON
 `<pre>` blocks) alongside the existing timestamp/status/message line —
-same data, same live SSE feed, no new endpoint. The `evidence` stage
+same data, same live SSE feed, no new endpoint. The `tracing_pack` stage
 renders as an 11th `StageCard` like any other stage; its "output" once
 `done` is the commit confirmation.
 
 ## Testing
 
-- **Unit:** `src/orchestrator/evidence.test.ts` — `formatEvidenceMarkdown`
-  against hand-built entries for each of the three outcomes (deployed /
-  blocked / failed), including the case where `failed` has zero entries
-  (no repo) and should not be called at all.
+- **Unit:** `src/orchestrator/tracingPack.test.ts` —
+  `formatTracingPackMarkdown` against hand-built entries for each of the
+  three outcomes (deployed / blocked / failed), including the case where
+  `failed` has zero entries (no repo) and should not be called at all.
 - **Unit:** `src/github/client.test.ts` — new `commitFile` test
   (mocked Octokit `createOrUpdateFileContents`, correct base64 encoding
   and target branch).
@@ -156,10 +157,10 @@ renders as an 11th `StageCard` like any other stage; its "output" once
 ## File layout (new/changed)
 
 ```
-src/orchestrator/types.ts        + input/output fields, "evidence" StageName
-src/orchestrator/runOrchestrator.ts   accumulate EvidenceEntry[], call commitFile
-src/orchestrator/evidence.ts     new: EvidenceEntry type + formatEvidenceMarkdown
-src/orchestrator/evidence.test.ts     new
+src/orchestrator/types.ts        + input/output fields, "tracing_pack" StageName
+src/orchestrator/runOrchestrator.ts   accumulate TracingPackEntry[], call commitFile
+src/orchestrator/tracingPack.ts  new: TracingPackEntry type + formatTracingPackMarkdown
+src/orchestrator/tracingPack.test.ts  new
 src/github/client.ts             + commitFile()
 src/github/client.test.ts        + commitFile tests
 web/src/types.ts                 mirror of orchestrator/types.ts changes

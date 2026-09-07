@@ -1,34 +1,34 @@
-# Evidence Tracking Implementation Plan
+# Tracing Pack Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Capture the real input/output of every pipeline stage (not just a
 short message), surface it live in the dashboard, and commit it as
-`EVIDENCE.md` into the target repo at the end of each run.
+`TRACING_PACK.md` into the target repo at the end of each run.
 
 **Architecture:** `RunEvent` gains optional `input`/`output` fields;
 `runOrchestrator` attaches the actual typed values it already has in scope
-to each stage's `running`/`done` events and accumulates them into an
-`EvidenceEntry[]`; a new pure `formatEvidenceMarkdown()` turns that into a
-Markdown doc that a new `GithubClient.commitFile()` pushes to the target
-repo's `main` branch as a new final `"evidence"` stage. The dashboard's
-`StageDetailSheet` renders `input`/`output` when present, using the same
-SSE feed it already has.
+to each stage's `running`/`done` events and accumulates them into a
+`TracingPackEntry[]`; a new pure `formatTracingPackMarkdown()` turns that
+into a Markdown doc that a new `GithubClient.commitFile()` pushes to the
+target repo's `main` branch as a new final `"tracing_pack"` stage. The
+dashboard's `StageDetailSheet` renders `input`/`output` when present,
+using the same SSE feed it already has.
 
 **Tech Stack:** TypeScript / Node 20+ / npm / Vitest (backend); Vite /
 React 19 / TypeScript / Vitest + React Testing Library (`web/`).
 
-**Spec:** `docs/superpowers/specs/2026-09-07-evidence-tracking-design.md`
+**Spec:** `docs/superpowers/specs/2026-09-07-tracing-pack-design.md`
 
 ## Global Constraints
 
 - No new agent calls or LLM round-trips — every input/output value comes
   from a variable already in scope inside `runOrchestrator`.
-- One evidence commit per run, at the very end (deployed / blocked /
+- One tracing pack commit per run, at the very end (deployed / blocked /
   failed-with-repo-created) — never per-stage, never if `create_repo`
   itself failed (no repo to commit to).
-- `EVIDENCE.md` is a new, independent file committed straight to `main`
-  — it must never touch paths the PR's own diff touches.
+- `TRACING_PACK.md` is a new, independent file committed straight to
+  `main` — it must never touch paths the PR's own diff touches.
 - Backend (`src/**`) and web (`web/src/**`) each keep their own
   `RunEvent`/`StageName` type definitions in sync by hand (existing
   convention — see `web/src/types.ts`'s header comment); this plan updates
@@ -36,20 +36,20 @@ React 19 / TypeScript / Vitest + React Testing Library (`web/`).
 
 ---
 
-### Task 1: Evidence Markdown formatter
+### Task 1: Tracing pack Markdown formatter
 
 **Files:**
-- Create: `src/orchestrator/evidence.ts`
-- Test: `src/orchestrator/evidence.test.ts`
+- Create: `src/orchestrator/tracingPack.ts`
+- Test: `src/orchestrator/tracingPack.test.ts`
 
 **Interfaces:**
 - Consumes: nothing (pure module, no imports from other new code).
-- Produces: `EvidenceEntry` type and `formatEvidenceMarkdown(entries:
-  EvidenceEntry[], outcome: string): string`, both imported by Task 3
+- Produces: `TracingPackEntry` type and `formatTracingPackMarkdown(entries:
+  TracingPackEntry[], outcome: string): string`, both imported by Task 3
   (`runOrchestrator.ts`).
 
 ```ts
-export interface EvidenceEntry {
+export interface TracingPackEntry {
   stage: StageName;
   status: StageStatus;
   input?: unknown;
@@ -59,15 +59,15 @@ export interface EvidenceEntry {
 
 - [ ] **Step 1: Write the failing test**
 
-Create `src/orchestrator/evidence.test.ts`:
+Create `src/orchestrator/tracingPack.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { formatEvidenceMarkdown, type EvidenceEntry } from "./evidence.js";
+import { formatTracingPackMarkdown, type TracingPackEntry } from "./tracingPack.js";
 
-describe("formatEvidenceMarkdown", () => {
+describe("formatTracingPackMarkdown", () => {
   it("renders one section per entry with input/output as fenced JSON", () => {
-    const entries: EvidenceEntry[] = [
+    const entries: TracingPackEntry[] = [
       {
         stage: "analyst",
         status: "done",
@@ -76,9 +76,9 @@ describe("formatEvidenceMarkdown", () => {
       },
     ];
 
-    const markdown = formatEvidenceMarkdown(entries, "deployed");
+    const markdown = formatTracingPackMarkdown(entries, "deployed");
 
-    expect(markdown).toContain("# Evidence");
+    expect(markdown).toContain("# Tracing Pack");
     expect(markdown).toContain("Outcome: **deployed**");
     expect(markdown).toContain("## analyst");
     expect(markdown).toContain("Status: `done`");
@@ -87,19 +87,19 @@ describe("formatEvidenceMarkdown", () => {
   });
 
   it("renders _none_ for a field that has no value yet", () => {
-    const entries: EvidenceEntry[] = [
+    const entries: TracingPackEntry[] = [
       { stage: "deploy", status: "running", input: { name: "app-1" } },
     ];
 
-    const markdown = formatEvidenceMarkdown(entries, "failed");
+    const markdown = formatTracingPackMarkdown(entries, "failed");
 
     expect(markdown).toContain("**Output**\n\n_none_");
   });
 
-  it("renders an empty evidence doc when there are no entries", () => {
-    const markdown = formatEvidenceMarkdown([], "failed");
+  it("renders an empty tracing pack when there are no entries", () => {
+    const markdown = formatTracingPackMarkdown([], "failed");
 
-    expect(markdown).toContain("# Evidence");
+    expect(markdown).toContain("# Tracing Pack");
     expect(markdown).toContain("Outcome: **failed**");
   });
 });
@@ -107,17 +107,17 @@ describe("formatEvidenceMarkdown", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run src/orchestrator/evidence.test.ts`
-Expected: FAIL — `Cannot find module './evidence.js'` (file doesn't exist yet).
+Run: `npx vitest run src/orchestrator/tracingPack.test.ts`
+Expected: FAIL — `Cannot find module './tracingPack.js'` (file doesn't exist yet).
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/orchestrator/evidence.ts`:
+Create `src/orchestrator/tracingPack.ts`:
 
 ```ts
 import type { StageName, StageStatus } from "./types.js";
 
-export interface EvidenceEntry {
+export interface TracingPackEntry {
   stage: StageName;
   status: StageStatus;
   input?: unknown;
@@ -131,7 +131,7 @@ function renderField(label: string, value: unknown): string {
   return `**${label}**\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
 }
 
-function renderEntry(entry: EvidenceEntry): string {
+function renderEntry(entry: TracingPackEntry): string {
   return [
     `## ${entry.stage}`,
     "",
@@ -143,9 +143,9 @@ function renderEntry(entry: EvidenceEntry): string {
   ].join("\n");
 }
 
-export function formatEvidenceMarkdown(entries: EvidenceEntry[], outcome: string): string {
+export function formatTracingPackMarkdown(entries: TracingPackEntry[], outcome: string): string {
   return [
-    "# Evidence",
+    "# Tracing Pack",
     "",
     `Outcome: **${outcome}**`,
     "",
@@ -158,14 +158,14 @@ export function formatEvidenceMarkdown(entries: EvidenceEntry[], outcome: string
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npx vitest run src/orchestrator/evidence.test.ts`
+Run: `npx vitest run src/orchestrator/tracingPack.test.ts`
 Expected: PASS (3 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/orchestrator/evidence.ts src/orchestrator/evidence.test.ts
-git commit -m "feat: add evidence Markdown formatter"
+git add src/orchestrator/tracingPack.ts src/orchestrator/tracingPack.test.ts
+git commit -m "feat: add tracing pack Markdown formatter"
 ```
 
 ---
@@ -196,14 +196,14 @@ In `src/github/client.test.ts`, add this `it` inside the existing
     });
     const client = new GithubClient(octokit as never);
 
-    const result = await client.commitFile("org", "repo", "EVIDENCE.md", "# Evidence", "main");
+    const result = await client.commitFile("org", "repo", "TRACING_PACK.md", "# Tracing Pack", "main");
 
     expect(octokit.repos.createOrUpdateFileContents).toHaveBeenCalledWith({
       owner: "org",
       repo: "repo",
-      path: "EVIDENCE.md",
-      message: "chore: add EVIDENCE.md",
-      content: Buffer.from("# Evidence", "utf-8").toString("base64"),
+      path: "TRACING_PACK.md",
+      message: "chore: add TRACING_PACK.md",
+      content: Buffer.from("# Tracing Pack", "utf-8").toString("base64"),
       branch: "main",
     });
     expect(result).toEqual({ sha: "abc123" });
@@ -249,12 +249,12 @@ Expected: PASS (6 tests)
 
 ```bash
 git add src/github/client.ts src/github/client.test.ts
-git commit -m "feat: add GithubClient.commitFile for committing evidence"
+git commit -m "feat: add GithubClient.commitFile for committing the tracing pack"
 ```
 
 ---
 
-### Task 3: Wire input/output capture and evidence commit into the orchestrator
+### Task 3: Wire input/output capture and the tracing pack commit into the orchestrator
 
 **Files:**
 - Modify: `src/orchestrator/types.ts`
@@ -262,12 +262,12 @@ git commit -m "feat: add GithubClient.commitFile for committing evidence"
 - Modify: `src/orchestrator/runOrchestrator.test.ts`
 
 **Interfaces:**
-- Consumes: `formatEvidenceMarkdown`/`EvidenceEntry` (Task 1),
+- Consumes: `formatTracingPackMarkdown`/`TracingPackEntry` (Task 1),
   `GithubClient.commitFile` (Task 2, available automatically since
   `OrchestratorDeps.github` is typed as `GithubClient`).
 - Produces: `RunEvent` now carries `input?: unknown` / `output?: unknown`;
-  `StageName` gains `"evidence"`. Both are consumed by Task 4/5 (the web
-  app has its own mirrored copy).
+  `StageName` gains `"tracing_pack"`. Both are consumed by Task 4/5 (the
+  web app has its own mirrored copy).
 
 - [ ] **Step 1: Update the shared event type**
 
@@ -285,7 +285,7 @@ export type StageName =
   | "post_review"
   | "merge"
   | "deploy"
-  | "evidence";
+  | "tracing_pack";
 
 export type StageStatus = "running" | "done" | "failed" | "blocked";
 
@@ -333,7 +333,7 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
     }),
     postPrComment: vi.fn().mockResolvedValue(undefined),
     mergePullRequest: vi.fn().mockResolvedValue(undefined),
-    commitFile: vi.fn().mockResolvedValue({ sha: "evidence-sha" }),
+    commitFile: vi.fn().mockResolvedValue({ sha: "tracing-pack-sha" }),
   };
   const render = {
     createService: vi.fn().mockResolvedValue({ serviceId: "srv-1" }),
@@ -374,7 +374,7 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
 }
 
 describe("runOrchestrator", () => {
-  it("runs every stage, including the final evidence stage, and deploys when QA passes", async () => {
+  it("runs every stage, including the final tracing_pack stage, and deploys when QA passes", async () => {
     const deps = makeDeps();
     const events: string[] = [];
     deps.eventBus.onEvent((event) => events.push(`${event.stage}:${event.status}`));
@@ -413,8 +413,8 @@ describe("runOrchestrator", () => {
       "merge:done",
       "deploy:running",
       "deploy:done",
-      "evidence:running",
-      "evidence:done",
+      "tracing_pack:running",
+      "tracing_pack:done",
     ]);
   });
 
@@ -446,7 +446,7 @@ describe("runOrchestrator", () => {
     expect(qaDone?.output).toEqual({ verdict: "pass", findings: [] });
   });
 
-  it("commits an EVIDENCE.md to the repo's main branch after a deployed run", async () => {
+  it("commits a TRACING_PACK.md to the repo's main branch after a deployed run", async () => {
     const deps = makeDeps();
 
     await runOrchestrator(params, deps);
@@ -455,14 +455,14 @@ describe("runOrchestrator", () => {
     const [owner, repo, path, content, branch] = vi.mocked(deps.github.commitFile).mock.calls[0];
     expect(owner).toBe("org");
     expect(repo).toBe("idea-to-mvp-app-1");
-    expect(path).toBe("EVIDENCE.md");
+    expect(path).toBe("TRACING_PACK.md");
     expect(branch).toBe("main");
     expect(content).toContain("Outcome: **deployed**");
     expect(content).toContain("## create_repo");
     expect(content).toContain("## deploy");
   });
 
-  it("blocks before merging or deploying when QA reports a critical finding, and still commits partial evidence", async () => {
+  it("blocks before merging or deploying when QA reports a critical finding, and still commits a partial tracing pack", async () => {
     const deps = makeDeps();
     vi.mocked(deps.agents.qa).mockResolvedValue({
       verdict: "block",
@@ -482,7 +482,7 @@ describe("runOrchestrator", () => {
     expect(content).not.toContain("## deploy");
   });
 
-  it("reports a failed outcome at the stage that threw, and still commits evidence for the repo that exists", async () => {
+  it("reports a failed outcome at the stage that threw, and still commits a tracing pack for the repo that exists", async () => {
     const deps = makeDeps();
     vi.mocked(deps.agents.developer).mockRejectedValue(new Error("claude -p crashed"));
 
@@ -495,7 +495,7 @@ describe("runOrchestrator", () => {
     expect(content).toContain("## developer");
   });
 
-  it("does not commit evidence when the repo itself was never created", async () => {
+  it("does not commit a tracing pack when the repo itself was never created", async () => {
     const deps = makeDeps();
     vi.mocked(deps.github.createRepoFromStarter).mockRejectedValue(new Error("repo already exists"));
 
@@ -526,7 +526,7 @@ describe("runOrchestrator", () => {
 - [ ] **Step 3: Run tests to verify they fail**
 
 Run: `npx vitest run src/orchestrator/runOrchestrator.test.ts`
-Expected: FAIL — the event-sequence assertion is missing `evidence:*`,
+Expected: FAIL — the event-sequence assertion is missing `tracing_pack:*`,
 `input`/`output` are `undefined` on captured events, and
 `deps.github.commitFile` is never called (TypeScript will also flag the
 test file once compiled, since `deps.github.commitFile` doesn't exist on
@@ -547,7 +547,7 @@ import type { runDeveloperAgent } from "../agents/developer.js";
 import type { runQaAgent } from "../agents/qa.js";
 import type { QAFinding, QAOutput } from "../agents/schemas.js";
 import type { RenderClient } from "../deploy/render.js";
-import { formatEvidenceMarkdown, type EvidenceEntry } from "./evidence.js";
+import { formatTracingPackMarkdown, type TracingPackEntry } from "./tracingPack.js";
 import { RunEventBus } from "./events.js";
 import type { RunEvent, StageName } from "./types.js";
 
@@ -585,7 +585,7 @@ export type RunOutcome =
   | { status: "failed"; stage: StageName; error: string };
 
 const BASE_BRANCH = "main";
-const EVIDENCE_PATH = "EVIDENCE.md";
+const TRACING_PACK_PATH = "TRACING_PACK.md";
 
 function stageEvent(
   stage: StageName,
@@ -613,25 +613,25 @@ export async function runOrchestrator(
   const { eventBus, github, render, git, agents, readStarterFiles } = deps;
   let currentStage: StageName = "create_repo";
   let currentInput: unknown;
-  const evidence: EvidenceEntry[] = [];
+  const tracingEntries: TracingPackEntry[] = [];
   let repo: Awaited<ReturnType<typeof github.createRepoFromStarter>> | undefined;
 
-  async function commitEvidence(outcome: string): Promise<void> {
+  async function commitTracingPack(outcome: string): Promise<void> {
     if (!repo) return;
     eventBus.emit(
-      stageEvent("evidence", "running", "Committing evidence to the repo", {
-        input: { path: EVIDENCE_PATH },
+      stageEvent("tracing_pack", "running", "Committing the tracing pack to the repo", {
+        input: { path: TRACING_PACK_PATH },
       }),
     );
     try {
-      const markdown = formatEvidenceMarkdown(evidence, outcome);
-      const result = await github.commitFile(params.owner, params.repoName, EVIDENCE_PATH, markdown, BASE_BRANCH);
+      const markdown = formatTracingPackMarkdown(tracingEntries, outcome);
+      const result = await github.commitFile(params.owner, params.repoName, TRACING_PACK_PATH, markdown, BASE_BRANCH);
       eventBus.emit(
-        stageEvent("evidence", "done", EVIDENCE_PATH, { output: { committed: true, sha: result.sha } }),
+        stageEvent("tracing_pack", "done", TRACING_PACK_PATH, { output: { committed: true, sha: result.sha } }),
       );
     } catch (error) {
       const err = error as Error;
-      eventBus.emit(stageEvent("evidence", "failed", err.message));
+      eventBus.emit(stageEvent("tracing_pack", "failed", err.message));
     }
   }
 
@@ -651,21 +651,21 @@ export async function runOrchestrator(
     });
     const createRepoOutput = { htmlUrl: repo.htmlUrl, cloneUrl: repo.cloneUrl };
     eventBus.emit(stageEvent(currentStage, "done", repo.htmlUrl, { output: createRepoOutput }));
-    evidence.push({ stage: currentStage, status: "done", input: currentInput, output: createRepoOutput });
+    tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: createRepoOutput });
 
     currentStage = "analyst";
     currentInput = { ideaText: params.ideaText };
     eventBus.emit(stageEvent(currentStage, "running", "Analyzing idea", { input: currentInput }));
     const analystOutput = await agents.analyst(params.ideaText, params.workDir);
     eventBus.emit(stageEvent(currentStage, "done", analystOutput.summary, { output: analystOutput }));
-    evidence.push({ stage: currentStage, status: "done", input: currentInput, output: analystOutput });
+    tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: analystOutput });
 
     currentStage = "architect";
     currentInput = { analystOutput };
     eventBus.emit(stageEvent(currentStage, "running", "Planning implementation", { input: currentInput }));
     const architectOutput = await agents.architect(analystOutput, params.workDir);
     eventBus.emit(stageEvent(currentStage, "done", architectOutput.issueTitle, { output: architectOutput }));
-    evidence.push({ stage: currentStage, status: "done", input: currentInput, output: architectOutput });
+    tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: architectOutput });
 
     currentStage = "open_issue";
     currentInput = { title: architectOutput.issueTitle, body: architectOutput.issueBody };
@@ -677,7 +677,7 @@ export async function runOrchestrator(
       architectOutput.issueBody,
     );
     eventBus.emit(stageEvent(currentStage, "done", `#${issue.number}`, { output: issue }));
-    evidence.push({ stage: currentStage, status: "done", input: currentInput, output: issue });
+    tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: issue });
 
     currentStage = "developer";
     currentInput = { issueBody: architectOutput.issueBody };
@@ -687,7 +687,7 @@ export async function runOrchestrator(
     const developerOutput = await agents.developer(architectOutput.issueBody, params.workDir);
     await git.pushBranch(params.workDir, architectOutput.branchName, params.githubToken);
     eventBus.emit(stageEvent(currentStage, "done", developerOutput.prTitle, { output: developerOutput }));
-    evidence.push({ stage: currentStage, status: "done", input: currentInput, output: developerOutput });
+    tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: developerOutput });
 
     currentStage = "open_pr";
     currentInput = {
@@ -707,7 +707,7 @@ export async function runOrchestrator(
       issueNumber: issue.number,
     });
     eventBus.emit(stageEvent(currentStage, "done", pr.htmlUrl, { output: pr }));
-    evidence.push({ stage: currentStage, status: "done", input: currentInput, output: pr });
+    tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: pr });
 
     currentStage = "qa";
     eventBus.emit(stageEvent(currentStage, "running", "Reviewing the pull request"));
@@ -715,7 +715,7 @@ export async function runOrchestrator(
     currentInput = { diff };
     const qaOutput = await agents.qa(diff, params.workDir);
     eventBus.emit(stageEvent(currentStage, "done", qaOutput.verdict, { output: qaOutput }));
-    evidence.push({ stage: currentStage, status: "done", input: currentInput, output: qaOutput });
+    tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: qaOutput });
 
     currentStage = "post_review";
     const comment = formatQaComment(qaOutput);
@@ -723,13 +723,13 @@ export async function runOrchestrator(
     eventBus.emit(stageEvent(currentStage, "running", "Posting review comment", { input: currentInput }));
     await github.postPrComment(params.owner, params.repoName, pr.number, comment);
     eventBus.emit(stageEvent(currentStage, "done", "posted", { output: { posted: true } }));
-    evidence.push({ stage: currentStage, status: "done", input: currentInput, output: { posted: true } });
+    tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: { posted: true } });
 
     const hasCritical = qaOutput.findings.some((f) => f.severity === "critical");
     if (hasCritical) {
       eventBus.emit(stageEvent("merge", "blocked", "Critical finding(s) - deploy skipped"));
-      evidence.push({ stage: "merge", status: "blocked", output: { findings: qaOutput.findings } });
-      await commitEvidence("blocked");
+      tracingEntries.push({ stage: "merge", status: "blocked", output: { findings: qaOutput.findings } });
+      await commitTracingPack("blocked");
       return { status: "blocked", findings: qaOutput.findings, prUrl: pr.htmlUrl };
     }
 
@@ -738,7 +738,7 @@ export async function runOrchestrator(
     eventBus.emit(stageEvent(currentStage, "running", "Merging pull request", { input: currentInput }));
     await github.mergePullRequest(params.owner, params.repoName, pr.number);
     eventBus.emit(stageEvent(currentStage, "done", "merged", { output: { merged: true } }));
-    evidence.push({ stage: currentStage, status: "done", input: currentInput, output: { merged: true } });
+    tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: { merged: true } });
 
     currentStage = "deploy";
     currentInput = { name: params.repoName, repoUrl: repo.htmlUrl, branch: BASE_BRANCH };
@@ -750,15 +750,15 @@ export async function runOrchestrator(
     });
     const live = await render.waitForLive(service.serviceId, { maxAttempts: 30, pollIntervalMs: 10_000 });
     eventBus.emit(stageEvent(currentStage, "done", live.url, { output: live }));
-    evidence.push({ stage: currentStage, status: "done", input: currentInput, output: live });
+    tracingEntries.push({ stage: currentStage, status: "done", input: currentInput, output: live });
 
-    await commitEvidence("deployed");
+    await commitTracingPack("deployed");
     return { status: "deployed", url: live.url, prUrl: pr.htmlUrl };
   } catch (error) {
     const err = error as Error;
     eventBus.emit(stageEvent(currentStage, "failed", err.message));
-    evidence.push({ stage: currentStage, status: "failed", input: currentInput, output: err.message });
-    await commitEvidence("failed");
+    tracingEntries.push({ stage: currentStage, status: "failed", input: currentInput, output: err.message });
+    await commitTracingPack("failed");
     return { status: "failed", stage: currentStage, error: err.message };
   }
 }
@@ -773,13 +773,13 @@ Expected: PASS (7 tests)
 
 Run: `npm test`
 Expected: PASS (all backend suites, including `events.test.ts` and
-`evidence.test.ts` from Task 1, unaffected by this change)
+`tracingPack.test.ts` from Task 1, unaffected by this change)
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add src/orchestrator/types.ts src/orchestrator/runOrchestrator.ts src/orchestrator/runOrchestrator.test.ts
-git commit -m "feat: capture stage input/output and commit run evidence to the target repo"
+git commit -m "feat: capture stage input/output and commit the tracing pack to the target repo"
 ```
 
 ---
@@ -792,11 +792,11 @@ git commit -m "feat: capture stage input/output and commit run evidence to the t
 
 **Interfaces:**
 - Consumes: nothing new.
-- Produces: `RunEvent.input`/`output`, `StageName` including `"evidence"`,
-  `STAGE_ORDER`/`STAGE_LABELS` including it — consumed by Task 5
-  (`StageDetailSheet`) and already consumed structurally by the existing
-  `WorkflowsView`/`StageCard` (no code change needed there, since they
-  already map over `STAGE_ORDER`).
+- Produces: `RunEvent.input`/`output`, `StageName` including
+  `"tracing_pack"`, `STAGE_ORDER`/`STAGE_LABELS` including it — consumed
+  by Task 5 (`StageDetailSheet`) and already consumed structurally by the
+  existing `WorkflowsView`/`StageCard` (no code change needed there,
+  since they already map over `STAGE_ORDER`).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -811,19 +811,19 @@ to:
 
 ```ts
     expect(screen.getAllByRole("button")).toHaveLength(11);
-    expect(screen.getByText("Evidence")).toBeInTheDocument();
+    expect(screen.getByText("Tracing pack")).toBeInTheDocument();
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd web && npx vitest run src/components/WorkflowsView.test.tsx`
-Expected: FAIL — 10 buttons found, "Evidence" text not present.
+Expected: FAIL — 10 buttons found, "Tracing pack" text not present.
 
 - [ ] **Step 3: Update the mirrored type**
 
 In `web/src/types.ts`, apply these three changes:
 
-Add `"evidence"` to the `StageName` union (after `"deploy"`):
+Add `"tracing_pack"` to the `StageName` union (after `"deploy"`):
 
 ```ts
 export type StageName =
@@ -837,7 +837,7 @@ export type StageName =
   | "post_review"
   | "merge"
   | "deploy"
-  | "evidence";
+  | "tracing_pack";
 ```
 
 Add `input`/`output` to `RunEvent`:
@@ -853,7 +853,7 @@ export interface RunEvent {
 }
 ```
 
-Add `"evidence"` to `STAGE_ORDER` and `STAGE_LABELS`:
+Add `"tracing_pack"` to `STAGE_ORDER` and `STAGE_LABELS`:
 
 ```ts
 export const STAGE_ORDER: StageName[] = [
@@ -867,7 +867,7 @@ export const STAGE_ORDER: StageName[] = [
   "post_review",
   "merge",
   "deploy",
-  "evidence",
+  "tracing_pack",
 ];
 
 export const STAGE_LABELS: Record<StageName, string> = {
@@ -881,7 +881,7 @@ export const STAGE_LABELS: Record<StageName, string> = {
   post_review: "Post review",
   merge: "Merge",
   deploy: "Deploy",
-  evidence: "Evidence",
+  tracing_pack: "Tracing pack",
 };
 ```
 
@@ -899,7 +899,7 @@ Expected: PASS
 
 ```bash
 git add web/src/types.ts web/src/components/WorkflowsView.test.tsx
-git commit -m "feat: add evidence stage and input/output fields to the web types"
+git commit -m "feat: add tracing_pack stage and input/output fields to the web types"
 ```
 
 ---
