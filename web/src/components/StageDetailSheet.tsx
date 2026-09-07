@@ -58,6 +58,26 @@ export function StageDetailSheet({ label, status, events, open, onOpenChange }: 
                     </span>
                   </div>
                   <p className="mt-1 break-words text-foreground">{event.message}</p>
+                  {event.input !== undefined && (
+                    <div className="mt-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Input
+                      </p>
+                      <pre className="mt-1 overflow-x-auto rounded bg-background p-2 text-foreground">
+                        {JSON.stringify(event.input, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  {event.output !== undefined && (
+                    <div className="mt-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Output
+                      </p>
+                      <pre className="mt-1 overflow-x-auto rounded bg-background p-2 text-foreground">
+                        {JSON.stringify(event.output, null, 2)}
+                      </pre>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
