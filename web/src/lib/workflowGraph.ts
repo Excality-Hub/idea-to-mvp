@@ -1,12 +1,13 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { StageDisplayStatus } from "@/components/status";
 import { deriveStageStatus, type EventsByStage } from "@/lib/runEvents";
-import { STAGE_LABELS, STAGE_ORDER, type RunEvent } from "@/types";
+import { STAGE_LABELS, STAGE_ORDER, type RunEvent, type StageName } from "@/types";
 
 export const STAGE_NODE_WIDTH = 240;
 export const STAGE_NODE_X_SPACING = 280;
 
 export interface StageNodeData extends Record<string, unknown> {
+  stage: StageName;
   label: string;
   status: StageDisplayStatus;
   latestEvent: RunEvent | undefined;
@@ -22,6 +23,7 @@ export function buildStageNodes(eventsByStage: EventsByStage): StageFlowNode[] {
       type: "stage",
       position: { x: index * STAGE_NODE_X_SPACING, y: 0 },
       data: {
+        stage,
         label: STAGE_LABELS[stage],
         status: deriveStageStatus(events),
         latestEvent: events?.[events.length - 1],

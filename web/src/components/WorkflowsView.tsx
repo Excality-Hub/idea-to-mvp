@@ -35,7 +35,7 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
-            onNodeClick={(_, node) => setSelectedStage(node.id as StageName)}
+            onNodeClick={(_, node) => setSelectedStage(node.data.stage)}
             fitView
             // All 11 stage nodes span (11 - 1) * STAGE_NODE_X_SPACING + STAGE_NODE_WIDTH = 3040px at
             // zoom 1. React Flow's default minZoom (0.5) can't zoom out far enough for fitView to fit
@@ -45,9 +45,10 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
             minZoom={0.1}
             nodesDraggable={false}
             nodesConnectable={false}
+            nodesFocusable={false}
             elementsSelectable={false}
           >
-            <Controls />
+            <Controls showInteractive={false} />
           </ReactFlow>
         </ReactFlowProvider>
       </div>

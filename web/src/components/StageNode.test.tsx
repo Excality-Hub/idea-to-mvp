@@ -23,6 +23,7 @@ describe("StageNode", () => {
       type: "stage",
       position: { x: 0, y: 0 },
       data: {
+        stage: "analyst",
         label: "Analyst",
         status: "done",
         latestEvent: {
@@ -44,7 +45,7 @@ describe("StageNode", () => {
       id: "deploy",
       type: "stage",
       position: { x: 0, y: 0 },
-      data: { label: "Deploy", status: "pending", latestEvent: undefined },
+      data: { stage: "deploy", label: "Deploy", status: "pending", latestEvent: undefined },
     });
 
     expect(screen.getByText("Deploy")).toBeInTheDocument();
