@@ -76,8 +76,10 @@ export interface RunEvent {
 }
 ```
 
-`StageName` gains a final value: `"tracing_pack"`. `STAGE_ORDER` /
-`STAGE_LABELS` (backend and web) are updated to include it.
+`StageName` gains a final value: `"tracing_pack"`. `web/src/types.ts`'s
+`STAGE_ORDER` / `STAGE_LABELS` are updated to include it (the backend just
+gains the `"tracing_pack"` `StageName` value itself - no equivalent
+`STAGE_ORDER`/`STAGE_LABELS` constants exist there).
 
 Per-stage input/output, drawn from variables already in scope in
 `runOrchestrator`:

@@ -18,6 +18,8 @@ describe("StageDetailSheet", () => {
 
     render(<StageDetailSheet label="Analyst" status="done" events={events} open onOpenChange={() => {}} />);
 
+    expect(screen.getByText("Input")).toBeInTheDocument();
+    expect(screen.getByText("Output")).toBeInTheDocument();
     expect(screen.getByText(/"ideaText": "Build a todo app"/)).toBeInTheDocument();
     expect(screen.getByText(/"summary": "A todo app"/)).toBeInTheDocument();
   });
