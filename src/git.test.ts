@@ -18,6 +18,14 @@ function mockExecFileOnce(stdout: string) {
   }) as never);
 }
 
+function mockExecFileFailureOnce(error: Error) {
+  vi.mocked(execFile).mockImplementationOnce(((...args: unknown[]) => {
+    const callback = args[args.length - 1] as ExecFileCallback;
+    callback(error, "", "");
+    return {} as never;
+  }) as never);
+}
+
 describe("git helper", () => {
   it("cloneRepo runs git clone with the url and target dir, authenticated with a bearer token header", async () => {
     mockExecFileOnce("");
@@ -62,6 +70,42 @@ describe("git helper", () => {
       { cwd: "/tmp/work" },
       expect.any(Function),
     );
+  });
+
+  it("cloneRepo redacts the token from a rejected error's message so it never leaks in logs or committed docs", async () => {
+    const token = "ghp_supersecrettoken123";
+    mockExecFileFailureOnce(
+      new Error(
+        `Command failed: git -c http.extraheader=AUTHORIZATION: bearer ${token} clone git@github.com:org/repo.git /tmp/work`,
+      ),
+    );
+
+    try {
+      await cloneRepo("git@github.com:org/repo.git", "/tmp/work", token);
+      expect.unreachable("expected cloneRepo to reject");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).not.toContain(token);
+      expect(message).toContain("***");
+    }
+  });
+
+  it("pushBranch redacts the token from a rejected error's message so it never leaks in logs or committed docs", async () => {
+    const token = "ghp_supersecrettoken123";
+    mockExecFileFailureOnce(
+      new Error(
+        `Command failed: git -c http.extraheader=AUTHORIZATION: bearer ${token} push -u origin feature/x`,
+      ),
+    );
+
+    try {
+      await pushBranch("/tmp/work", "feature/x", token);
+      expect.unreachable("expected pushBranch to reject");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).not.toContain(token);
+      expect(message).toContain("***");
+    }
   });
 
   it("diffAgainstBase returns the diff output against origin/<base>", async () => {
