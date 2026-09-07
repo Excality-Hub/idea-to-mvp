@@ -69,4 +69,22 @@ export class GithubClient {
   async mergePullRequest(owner: string, repo: string, prNumber: number): Promise<void> {
     await this.octokit.pulls.merge({ owner, repo, pull_number: prNumber, merge_method: "squash" });
   }
+
+  async commitFile(
+    owner: string,
+    repo: string,
+    path: string,
+    content: string,
+    branch: string,
+  ): Promise<{ sha: string }> {
+    const { data } = await this.octokit.repos.createOrUpdateFileContents({
+      owner,
+      repo,
+      path,
+      message: `chore: add ${path}`,
+      content: Buffer.from(content, "utf-8").toString("base64"),
+      branch,
+    });
+    return { sha: (data as { content?: { sha?: string } }).content?.sha ?? "" };
+  }
 }

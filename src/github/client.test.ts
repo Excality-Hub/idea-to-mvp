@@ -113,4 +113,24 @@ describe("GithubClient", () => {
       merge_method: "squash",
     });
   });
+
+  it("commitFile commits the given content to the given branch", async () => {
+    const octokit = makeFakeOctokit();
+    octokit.repos.createOrUpdateFileContents.mockResolvedValue({
+      data: { content: { sha: "abc123" } },
+    });
+    const client = new GithubClient(octokit as never);
+
+    const result = await client.commitFile("org", "repo", "TRACING_PACK.md", "# Tracing Pack", "main");
+
+    expect(octokit.repos.createOrUpdateFileContents).toHaveBeenCalledWith({
+      owner: "org",
+      repo: "repo",
+      path: "TRACING_PACK.md",
+      message: "chore: add TRACING_PACK.md",
+      content: Buffer.from("# Tracing Pack", "utf-8").toString("base64"),
+      branch: "main",
+    });
+    expect(result).toEqual({ sha: "abc123" });
+  });
 });
