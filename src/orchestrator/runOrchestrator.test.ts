@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { RunEventBus } from "./events.js";
 import { runOrchestrator, type OrchestratorDeps, type OrchestratorParams } from "./runOrchestrator.js";
+import type { RunEvent } from "./types.js";
 
 const params: OrchestratorParams = {
   ideaText: "Build a todo app",
@@ -26,6 +27,7 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
     }),
     postPrComment: vi.fn().mockResolvedValue(undefined),
     mergePullRequest: vi.fn().mockResolvedValue(undefined),
+    commitFile: vi.fn().mockResolvedValue({ sha: "tracing-pack-sha" }),
   };
   const render = {
     createService: vi.fn().mockResolvedValue({ serviceId: "srv-1" }),
@@ -66,7 +68,7 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
 }
 
 describe("runOrchestrator", () => {
-  it("runs every stage and deploys when QA passes with no critical findings", async () => {
+  it("runs every stage, including the final tracing_pack stage, and deploys when QA passes", async () => {
     const deps = makeDeps();
     const events: string[] = [];
     deps.eventBus.onEvent((event) => events.push(`${event.stage}:${event.status}`));
@@ -105,10 +107,56 @@ describe("runOrchestrator", () => {
       "merge:done",
       "deploy:running",
       "deploy:done",
+      "tracing_pack:running",
+      "tracing_pack:done",
     ]);
   });
 
-  it("blocks before merging or deploying when QA reports a critical finding", async () => {
+  it("captures each stage's input and output on its events", async () => {
+    const deps = makeDeps();
+    const events: RunEvent[] = [];
+    deps.eventBus.onEvent((event) => events.push(event));
+
+    await runOrchestrator(params, deps);
+
+    const analystRunning = events.find((e) => e.stage === "analyst" && e.status === "running");
+    const analystDone = events.find((e) => e.stage === "analyst" && e.status === "done");
+    expect(analystRunning?.input).toEqual({ ideaText: "Build a todo app" });
+    expect(analystDone?.output).toEqual({
+      summary: "A todo app",
+      goals: [],
+      keyFeatures: [],
+      nonGoals: [],
+      openQuestions: [],
+    });
+
+    const createRepoDone = events.find((e) => e.stage === "create_repo" && e.status === "done");
+    expect(createRepoDone?.output).toEqual({
+      htmlUrl: "https://github.com/org/idea-to-mvp-app-1",
+      cloneUrl: "https://github.com/org/idea-to-mvp-app-1.git",
+    });
+
+    const qaDone = events.find((e) => e.stage === "qa" && e.status === "done");
+    expect(qaDone?.output).toEqual({ verdict: "pass", findings: [] });
+  });
+
+  it("commits a TRACING_PACK.md to the repo's main branch after a deployed run", async () => {
+    const deps = makeDeps();
+
+    await runOrchestrator(params, deps);
+
+    expect(deps.github.commitFile).toHaveBeenCalledTimes(1);
+    const [owner, repo, path, content, branch] = vi.mocked(deps.github.commitFile).mock.calls[0];
+    expect(owner).toBe("org");
+    expect(repo).toBe("idea-to-mvp-app-1");
+    expect(path).toBe("TRACING_PACK.md");
+    expect(branch).toBe("main");
+    expect(content).toContain("Outcome: **deployed**");
+    expect(content).toContain("## create_repo");
+    expect(content).toContain("## deploy");
+  });
+
+  it("blocks before merging or deploying when QA reports a critical finding, and still commits a partial tracing pack", async () => {
     const deps = makeDeps();
     vi.mocked(deps.agents.qa).mockResolvedValue({
       verdict: "block",
@@ -122,15 +170,33 @@ describe("runOrchestrator", () => {
     expect(outcome.status).toBe("blocked");
     expect(deps.github.mergePullRequest).not.toHaveBeenCalled();
     expect(deps.render.createService).not.toHaveBeenCalled();
+    expect(deps.github.commitFile).toHaveBeenCalledTimes(1);
+    const [, , , content] = vi.mocked(deps.github.commitFile).mock.calls[0];
+    expect(content).toContain("Outcome: **blocked**");
+    expect(content).not.toContain("## deploy");
   });
 
-  it("reports a failed outcome at the stage that threw", async () => {
+  it("reports a failed outcome at the stage that threw, and still commits a tracing pack for the repo that exists", async () => {
     const deps = makeDeps();
     vi.mocked(deps.agents.developer).mockRejectedValue(new Error("claude -p crashed"));
 
     const outcome = await runOrchestrator(params, deps);
 
     expect(outcome).toEqual({ status: "failed", stage: "developer", error: "claude -p crashed" });
+    expect(deps.github.commitFile).toHaveBeenCalledTimes(1);
+    const [, , , content] = vi.mocked(deps.github.commitFile).mock.calls[0];
+    expect(content).toContain("Outcome: **failed**");
+    expect(content).toContain("## developer");
+  });
+
+  it("does not commit a tracing pack when the repo itself was never created", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.github.createRepoFromStarter).mockRejectedValue(new Error("repo already exists"));
+
+    const outcome = await runOrchestrator(params, deps);
+
+    expect(outcome).toEqual({ status: "failed", stage: "create_repo", error: "repo already exists" });
+    expect(deps.github.commitFile).not.toHaveBeenCalled();
   });
 
   it("proceeds through merge and deploy when QA findings are present but none are critical", async () => {

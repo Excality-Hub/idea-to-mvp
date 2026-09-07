@@ -8,7 +8,8 @@ export type StageName =
   | "qa"
   | "post_review"
   | "merge"
-  | "deploy";
+  | "deploy"
+  | "tracing_pack";
 
 export type StageStatus = "running" | "done" | "failed" | "blocked";
 
@@ -17,4 +18,6 @@ export interface RunEvent {
   status: StageStatus;
   message: string;
   timestamp: string;
+  input?: unknown;
+  output?: unknown;
 }
