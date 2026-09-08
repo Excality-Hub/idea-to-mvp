@@ -16,6 +16,7 @@ import type { RenderClient } from "../deploy/render.js";
 import { formatTracingPackMarkdown, type TracingPackEntry } from "./tracingPack.js";
 import { RunEventBus } from "./events.js";
 import type { RunEvent, StageName } from "./types.js";
+import { AgentStoppedError } from "../claudeAgent.js";
 
 export interface OrchestratorParams {
   ideaText: string;
@@ -44,11 +45,6 @@ export interface OrchestratorDeps {
   };
   readStarterFiles: typeof ReadStarterFiles;
 }
-
-export type RunOutcome =
-  | { status: "deployed"; url: string; prUrl: string }
-  | { status: "blocked"; findings: QAFinding[]; prUrl: string }
-  | { status: "failed"; stage: StageName; error: string };
 
 const BASE_BRANCH = "main";
 const TRACING_PACK_PATH = "TRACING_PACK.md";
@@ -86,15 +82,33 @@ export interface PipelineContext {
   deployUrl?: string;
 }
 
+export interface ResumeState {
+  stageIndex: number;
+  ctx: PipelineContext;
+}
+
+export type RunOutcome =
+  | { status: "deployed"; url: string; prUrl: string }
+  | { status: "blocked"; findings: QAFinding[]; prUrl: string }
+  | { status: "failed"; stage: StageName; error: string }
+  | { status: "stopped"; stage: StageName; resumeState: ResumeState };
+
 interface StageStep {
   name: StageName;
+  abortable: boolean;
   guard?: (ctx: PipelineContext) => boolean;
-  run(ctx: PipelineContext, params: OrchestratorParams, deps: OrchestratorDeps): Promise<void>;
+  run(
+    ctx: PipelineContext,
+    params: OrchestratorParams,
+    deps: OrchestratorDeps,
+    signal?: AbortSignal,
+  ): Promise<void>;
 }
 
 const STAGE_STEPS: StageStep[] = [
   {
     name: "create_repo",
+    abortable: false,
     async run(ctx, params, deps) {
       const starterFiles = deps.readStarterFiles(params.starterDir);
       ctx.pendingInput = {
@@ -120,10 +134,11 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "analyst",
-    async run(ctx, params, deps) {
+    abortable: true,
+    async run(ctx, params, deps, signal) {
       ctx.pendingInput = { ideaText: params.ideaText };
       deps.eventBus.emit(stageEvent("analyst", "running", "Analyzing idea", { input: ctx.pendingInput }));
-      const analystOutput = await deps.agents.analyst(params.ideaText, params.workDir);
+      const analystOutput = await deps.agents.analyst(params.ideaText, params.workDir, signal);
       deps.eventBus.emit(stageEvent("analyst", "done", analystOutput.summary, { output: analystOutput }));
       ctx.tracingEntries.push({ stage: "analyst", status: "done", input: ctx.pendingInput, output: analystOutput });
       ctx.analystOutput = analystOutput;
@@ -131,10 +146,11 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "architect",
-    async run(ctx, params, deps) {
+    abortable: true,
+    async run(ctx, params, deps, signal) {
       ctx.pendingInput = { analystOutput: ctx.analystOutput };
       deps.eventBus.emit(stageEvent("architect", "running", "Planning implementation", { input: ctx.pendingInput }));
-      const architectOutput = await deps.agents.architect(ctx.analystOutput!, params.workDir);
+      const architectOutput = await deps.agents.architect(ctx.analystOutput!, params.workDir, signal);
       deps.eventBus.emit(stageEvent("architect", "done", architectOutput.issueTitle, { output: architectOutput }));
       ctx.tracingEntries.push({
         stage: "architect",
@@ -147,6 +163,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "open_issue",
+    abortable: false,
     async run(ctx, params, deps) {
       ctx.pendingInput = { title: ctx.architectOutput!.issueTitle, body: ctx.architectOutput!.issueBody };
       deps.eventBus.emit(stageEvent("open_issue", "running", "Opening GitHub issue", { input: ctx.pendingInput }));
@@ -163,12 +180,13 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "developer",
-    async run(ctx, params, deps) {
+    abortable: true,
+    async run(ctx, params, deps, signal) {
       ctx.pendingInput = { issueBody: ctx.architectOutput!.issueBody };
       deps.eventBus.emit(stageEvent("developer", "running", "Implementing the plan", { input: ctx.pendingInput }));
       await deps.git.cloneRepo(ctx.repo!.cloneUrl, params.workDir, params.githubToken);
       await deps.git.createAndCheckoutBranch(params.workDir, ctx.architectOutput!.branchName);
-      const developerOutput = await deps.agents.developer(ctx.architectOutput!.issueBody, params.workDir);
+      const developerOutput = await deps.agents.developer(ctx.architectOutput!.issueBody, params.workDir, signal);
       await deps.git.pushBranch(params.workDir, ctx.architectOutput!.branchName, params.githubToken);
       deps.eventBus.emit(stageEvent("developer", "done", developerOutput.prTitle, { output: developerOutput }));
       ctx.tracingEntries.push({
@@ -182,6 +200,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "open_pr",
+    abortable: false,
     async run(ctx, params, deps) {
       ctx.pendingInput = {
         title: ctx.developerOutput!.prTitle,
@@ -206,12 +225,13 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "qa",
-    async run(ctx, params, deps) {
+    abortable: true,
+    async run(ctx, params, deps, signal) {
       ctx.pendingInput = undefined;
       deps.eventBus.emit(stageEvent("qa", "running", "Reviewing the pull request"));
       const diff = await deps.git.diffAgainstBase(params.workDir, BASE_BRANCH);
       ctx.pendingInput = { diff };
-      const qaOutput = await deps.agents.qa(diff, params.workDir);
+      const qaOutput = await deps.agents.qa(diff, params.workDir, signal);
       deps.eventBus.emit(stageEvent("qa", "done", qaOutput.verdict, { output: qaOutput }));
       ctx.tracingEntries.push({ stage: "qa", status: "done", input: ctx.pendingInput, output: qaOutput });
       ctx.diff = diff;
@@ -220,6 +240,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "post_review",
+    abortable: false,
     async run(ctx, params, deps) {
       const comment = formatQaComment(ctx.qaOutput!);
       ctx.pendingInput = { comment };
@@ -236,6 +257,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "merge",
+    abortable: false,
     guard: (ctx) => ctx.qaOutput!.findings.some((f) => f.severity === "critical"),
     async run(ctx, params, deps) {
       ctx.pendingInput = { prNumber: ctx.pr!.number };
@@ -247,6 +269,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "deploy",
+    abortable: false,
     async run(ctx, params, deps) {
       ctx.pendingInput = { name: params.repoName, repoUrl: ctx.repo!.htmlUrl, branch: BASE_BRANCH };
       deps.eventBus.emit(stageEvent("deploy", "running", "Deploying to Render", { input: ctx.pendingInput }));
@@ -266,8 +289,11 @@ const STAGE_STEPS: StageStep[] = [
 export async function runOrchestrator(
   params: OrchestratorParams,
   deps: OrchestratorDeps,
+  resumeState?: ResumeState,
+  signal?: AbortSignal,
 ): Promise<RunOutcome> {
-  const ctx: PipelineContext = { tracingEntries: [] };
+  const ctx: PipelineContext = resumeState?.ctx ?? { tracingEntries: [] };
+  const startIndex = resumeState?.stageIndex ?? 0;
 
   async function commitTracingPack(outcome: string): Promise<void> {
     if (!ctx.repo) return;
@@ -294,8 +320,9 @@ export async function runOrchestrator(
     }
   }
 
-  let currentStage: StageName = "create_repo";
-  for (const step of STAGE_STEPS) {
+  let currentStage: StageName = STAGE_STEPS[startIndex]?.name ?? "create_repo";
+  for (let i = startIndex; i < STAGE_STEPS.length; i++) {
+    const step = STAGE_STEPS[i];
     currentStage = step.name;
     if (step.guard?.(ctx)) {
       deps.eventBus.emit(
@@ -308,8 +335,12 @@ export async function runOrchestrator(
       return { status: "blocked", findings: ctx.qaOutput!.findings, prUrl: ctx.pr!.htmlUrl };
     }
     try {
-      await step.run(ctx, params, deps);
+      await step.run(ctx, params, deps, step.abortable ? signal : undefined);
     } catch (error) {
+      if (error instanceof AgentStoppedError) {
+        deps.eventBus.emit(stageEvent(currentStage, "stopped", "Stopped by user"));
+        return { status: "stopped", stage: currentStage, resumeState: { stageIndex: i, ctx } };
+      }
       const err = error as Error;
       deps.eventBus.emit(stageEvent(currentStage, "failed", err.message));
       ctx.tracingEntries.push({ stage: currentStage, status: "failed", input: ctx.pendingInput, output: err.message });

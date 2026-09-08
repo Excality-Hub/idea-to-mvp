@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { AgentStoppedError } from "../claudeAgent.js";
 import { RunEventBus } from "./events.js";
 import { runOrchestrator, type OrchestratorDeps, type OrchestratorParams } from "./runOrchestrator.js";
 import type { RunEvent } from "./types.js";
@@ -229,5 +230,55 @@ describe("runOrchestrator", () => {
     expect(outcome.status).toBe("deployed");
     expect(deps.github.mergePullRequest).toHaveBeenCalledWith("org", "idea-to-mvp-app-1", 2);
     expect(deps.render.createService).toHaveBeenCalled();
+  });
+
+  it("stops the run when the developer agent is aborted, without committing a tracing pack", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.developer).mockImplementation(
+      (_issueBody: string, _cwd: string, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new AgentStoppedError());
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
+        }),
+    );
+    const controller = new AbortController();
+    controller.abort();
+
+    const outcome = await runOrchestrator(params, deps, undefined, controller.signal);
+
+    expect(outcome.status).toBe("stopped");
+    if (outcome.status === "stopped") {
+      expect(outcome.stage).toBe("developer");
+      expect(outcome.resumeState.stageIndex).toBeGreaterThanOrEqual(0);
+      expect(outcome.resumeState.ctx.repo).toBeDefined();
+    }
+    expect(deps.github.commitFile).not.toHaveBeenCalled();
+  });
+
+  it("resumes a stopped run from the stored snapshot and continues to completion", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.developer).mockImplementationOnce(
+      (_issueBody: string, _cwd: string, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new AgentStoppedError());
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
+        }),
+    );
+    const controller = new AbortController();
+    controller.abort();
+    const stopped = await runOrchestrator(params, deps, undefined, controller.signal);
+    if (stopped.status !== "stopped") throw new Error("expected a stopped outcome");
+
+    const outcome = await runOrchestrator(params, deps, stopped.resumeState);
+
+    expect(outcome.status).toBe("deployed");
+    expect(deps.git.createAndCheckoutBranch).toHaveBeenCalledTimes(2);
+    expect(deps.github.mergePullRequest).toHaveBeenCalled();
   });
 });

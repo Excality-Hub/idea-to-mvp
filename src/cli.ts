@@ -81,8 +81,11 @@ async function main(): Promise<void> {
     console.log(`Live at ${outcome.url}`);
   } else if (outcome.status === "blocked") {
     console.log(`Blocked by QA - see ${outcome.prUrl}`);
-  } else {
+  } else if (outcome.status === "failed") {
     console.error(`Failed at stage ${outcome.stage}: ${outcome.error}`);
+    process.exitCode = 1;
+  } else {
+    console.error(`Run stopped at stage ${outcome.stage}`);
     process.exitCode = 1;
   }
 }
