@@ -124,4 +124,17 @@ describe("deriveOverallStatus", () => {
       }),
     ).toBe("failed");
   });
+
+  it("is not stopped once the stopped stage's latest event has moved past stopped", () => {
+    expect(
+      deriveOverallStatus({
+        analyst: [event({ stage: "analyst", status: "done" })],
+        architect: [
+          event({ stage: "architect", status: "stopped" }),
+          event({ stage: "architect", status: "running" }),
+          event({ stage: "architect", status: "done" }),
+        ],
+      }),
+    ).toBe("running");
+  });
 });
