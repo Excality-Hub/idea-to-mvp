@@ -106,4 +106,22 @@ describe("deriveOverallStatus", () => {
       }),
     ).toBe("failed");
   });
+
+  it("is stopped when a stage was stopped and nothing failed", () => {
+    expect(
+      deriveOverallStatus({
+        analyst: [event({ stage: "analyst", status: "done" })],
+        architect: [event({ stage: "architect", status: "stopped" })],
+      }),
+    ).toBe("stopped");
+  });
+
+  it("is failed, not stopped, when a stage failed after another stage was stopped", () => {
+    expect(
+      deriveOverallStatus({
+        architect: [event({ stage: "architect", status: "stopped" })],
+        developer: [event({ stage: "developer", status: "failed" })],
+      }),
+    ).toBe("failed");
+  });
 });

@@ -28,5 +28,6 @@ export function deriveOverallStatus(eventsByStage: EventsByStage): OverallStatus
   if (allEvents.some((e) => e.status === "failed" && e.stage !== "tracing_pack")) return "failed";
   if (deriveStageStatus(eventsByStage.merge) === "blocked") return "blocked";
   if (deriveStageStatus(eventsByStage.deploy) === "done") return "deployed";
+  if (allEvents.some((e) => e.status === "stopped")) return "stopped";
   return "running";
 }

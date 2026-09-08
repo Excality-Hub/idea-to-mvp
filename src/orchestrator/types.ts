@@ -11,7 +11,7 @@ export type StageName =
   | "deploy"
   | "tracing_pack";
 
-export type StageStatus = "running" | "done" | "failed" | "blocked";
+export type StageStatus = "running" | "done" | "failed" | "blocked" | "stopped";
 
 export interface RunEvent {
   stage: StageName;
@@ -21,3 +21,5 @@ export interface RunEvent {
   input?: unknown;
   output?: unknown;
 }
+
+export const ABORTABLE_STAGES: StageName[] = ["analyst", "architect", "developer", "qa"];
