@@ -1,16 +1,21 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ReactFlow, ReactFlowProvider } from "@xyflow/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { StageNode } from "./StageNode";
-import type { StageFlowNode } from "@/lib/workflowGraph";
+import { STAGE_NODE_WIDTH, type StageFlowNode } from "@/lib/workflowGraph";
 
 const nodeTypes = { stage: StageNode };
 
 function renderStageNode(node: StageFlowNode) {
+  // Give the node explicit dimensions so React Flow treats it as already
+  // measured. Without this it stays `visibility: hidden` until a
+  // ResizeObserver callback fires, which jsdom's test-env stub never does —
+  // that would make every element's accessible name compute as empty.
   return render(
     <ReactFlowProvider>
       <div style={{ width: 800, height: 400 }}>
-        <ReactFlow nodes={[node]} edges={[]} nodeTypes={nodeTypes} />
+        <ReactFlow nodes={[{ ...node, width: STAGE_NODE_WIDTH, height: 88 }]} edges={[]} nodeTypes={nodeTypes} />
       </div>
     </ReactFlowProvider>,
   );
@@ -50,5 +55,55 @@ describe("StageNode", () => {
 
     expect(screen.getByText("Deploy")).toBeInTheDocument();
     expect(screen.getByText("Waiting for this stage to start")).toBeInTheDocument();
+  });
+
+  it("shows a Stop button for a running agent stage", () => {
+    renderStageNode({
+      id: "developer",
+      type: "stage",
+      position: { x: 0, y: 0 },
+      data: { stage: "developer", label: "Developer", status: "running", latestEvent: undefined },
+    });
+
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+  });
+
+  it("shows a Resume button for a stopped agent stage", () => {
+    renderStageNode({
+      id: "developer",
+      type: "stage",
+      position: { x: 0, y: 0 },
+      data: { stage: "developer", label: "Developer", status: "stopped", latestEvent: undefined },
+    });
+
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+  });
+
+  it("shows no Stop/Resume button for a running non-agent stage", () => {
+    renderStageNode({
+      id: "deploy",
+      type: "stage",
+      position: { x: 0, y: 0 },
+      data: { stage: "deploy", label: "Deploy", status: "running", latestEvent: undefined },
+    });
+
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+  });
+
+  it("posts to /api/run/stop when Stop is clicked", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderStageNode({
+      id: "developer",
+      type: "stage",
+      position: { x: 0, y: 0 },
+      data: { stage: "developer", label: "Developer", status: "running", latestEvent: undefined },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/run/stop", { method: "POST" });
+    vi.unstubAllGlobals();
   });
 });
