@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 // src/cli.ts
 import "dotenv/config";
-import { mkdtempSync, readFileSync, realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Octokit } from "@octokit/rest";
 import open from "open";
@@ -17,8 +15,7 @@ import { RenderClient } from "./deploy/render.js";
 import { GithubClient } from "./github/client.js";
 import { readStarterFiles } from "./github/readStarterFiles.js";
 import { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch } from "./git.js";
-import { RunEventBus } from "./orchestrator/events.js";
-import { runOrchestrator } from "./orchestrator/runOrchestrator.js";
+import { RunController } from "./orchestrator/runController.js";
 
 export function parseArgs(argv: string[]): { ideaFilePath: string } | null {
   const [, , command, ideaFilePath] = argv;
@@ -38,32 +35,13 @@ async function main(): Promise<void> {
 
   const config = loadConfig();
   const ideaText = readFileSync(parsed.ideaFilePath, "utf-8");
-  const repoName = `idea-to-mvp-${Date.now()}`;
-  const workDir = mkdtempSync(join(tmpdir(), "idea-to-mvp-"));
-
-  const eventBus = new RunEventBus();
-  eventBus.onEvent((event) => {
-    console.log(`[${event.stage}] ${event.status}: ${event.message}`);
-  });
-
-  const app = createDashboardServer(eventBus);
-  app.listen(config.port, () => {
-    console.log(`Dashboard listening on http://localhost:${config.port}`);
-  });
-  await open(`http://localhost:${config.port}`);
 
   const octokit = new Octokit({ auth: config.githubToken });
-  const outcome = await runOrchestrator(
-    {
-      ideaText,
-      owner: config.targetGithubOwner,
-      repoName,
-      starterDir: fileURLToPath(new URL("../templates/starter", import.meta.url)),
-      workDir,
-      githubToken: config.githubToken,
-    },
-    {
-      eventBus,
+  const controller = new RunController({
+    owner: config.targetGithubOwner,
+    starterDir: fileURLToPath(new URL("../templates/starter", import.meta.url)),
+    githubToken: config.githubToken,
+    deps: {
       github: new GithubClient(octokit),
       render: new RenderClient(config.renderApiKey),
       git: { cloneRepo, createAndCheckoutBranch, pushBranch, diffAgainstBase },
@@ -75,17 +53,30 @@ async function main(): Promise<void> {
       },
       readStarterFiles,
     },
-  );
+  });
 
-  if (outcome.status === "deployed") {
+  controller.eventBus.onEvent((event) => {
+    console.log(`[${event.stage}] ${event.status}: ${event.message}`);
+  });
+
+  const app = createDashboardServer(controller);
+  app.listen(config.port, () => {
+    console.log(`Dashboard listening on http://localhost:${config.port}`);
+  });
+  await open(`http://localhost:${config.port}`);
+
+  controller.start(ideaText);
+  const outcome = await controller.getRunPromise();
+
+  if (outcome?.status === "deployed") {
     console.log(`Live at ${outcome.url}`);
-  } else if (outcome.status === "blocked") {
+  } else if (outcome?.status === "blocked") {
     console.log(`Blocked by QA - see ${outcome.prUrl}`);
-  } else if (outcome.status === "failed") {
+  } else if (outcome?.status === "failed") {
     console.error(`Failed at stage ${outcome.stage}: ${outcome.error}`);
     process.exitCode = 1;
   } else {
-    console.error(`Run stopped at stage ${outcome.stage}`);
+    console.error(`Run stopped at stage ${outcome?.stage}`);
     process.exitCode = 1;
   }
 }
