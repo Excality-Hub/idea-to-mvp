@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { WorkflowsView } from "./WorkflowsView";
 import type { EventsByStage } from "@/lib/runEvents";
 
@@ -49,5 +49,35 @@ describe("WorkflowsView", () => {
 
     const dialog = within(screen.getByRole("dialog"));
     expect(dialog.getByText(/hasn.t started/)).toBeInTheDocument();
+  });
+
+  it("shows an idea input and Start button when idle (no events yet)", () => {
+    render(<WorkflowsView eventsByStage={{}} />);
+
+    expect(screen.getByLabelText("Idea")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start run" })).toBeInTheDocument();
+  });
+
+  it("posts the idea text to /api/run when Start is clicked", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<WorkflowsView eventsByStage={{}} />);
+
+    await user.type(screen.getByLabelText("Idea"), "Build a todo app");
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ideaText: "Build a todo app" }),
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("does not show the idea form once a run has started", () => {
+    render(<WorkflowsView eventsByStage={eventsByStage} />);
+
+    expect(screen.queryByLabelText("Idea")).not.toBeInTheDocument();
   });
 });
