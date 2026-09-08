@@ -10,7 +10,6 @@ import {
   type ResumeState,
   type RunOutcome,
 } from "./runOrchestrator.js";
-import { ABORTABLE_STAGES, type StageName } from "./types.js";
 
 export type RunControllerStatus = "idle" | "running" | "stopped" | "done";
 
@@ -25,7 +24,6 @@ export class RunController {
   eventBus: RunEventBus = new RunEventBus();
 
   private status: RunControllerStatus = "idle";
-  private currentStage: StageName | undefined;
   private activeController: AbortController | undefined;
   private snapshot: { params: OrchestratorParams; resumeState: ResumeState } | undefined;
   private runPromise: Promise<RunOutcome> | undefined;
@@ -66,12 +64,7 @@ export class RunController {
   }
 
   stop(): void {
-    if (
-      this.status !== "running" ||
-      !this.currentStage ||
-      !ABORTABLE_STAGES.includes(this.currentStage) ||
-      !this.activeController
-    ) {
+    if (this.status !== "running" || !this.activeController) {
       throw new Error("No abortable stage is currently running");
     }
     this.activeController.abort();
@@ -87,24 +80,29 @@ export class RunController {
 
   private runFrom(params: OrchestratorParams, resumeState: ResumeState | undefined): void {
     this.status = "running";
-    this.currentStage = undefined;
-    this.activeController = new AbortController();
-
-    const unsubscribe = this.eventBus.onEvent((event) => {
-      if (event.status === "running") this.currentStage = event.stage;
-    });
+    this.activeController = undefined;
 
     const deps: OrchestratorDeps = { ...this.config.deps, eventBus: this.eventBus };
-    this.runPromise = runOrchestrator(params, deps, resumeState, this.activeController.signal).then((outcome) => {
-      unsubscribe();
-      if (outcome.status === "stopped") {
-        this.status = "stopped";
-        this.snapshot = { params, resumeState: outcome.resumeState };
-      } else {
+    this.runPromise = runOrchestrator(params, deps, resumeState, (controller) => {
+      this.activeController = controller;
+    }).then(
+      (outcome) => {
+        this.activeController = undefined;
+        if (outcome.status === "stopped") {
+          this.status = "stopped";
+          this.snapshot = { params, resumeState: outcome.resumeState };
+        } else {
+          this.status = "done";
+          this.snapshot = undefined;
+        }
+        return outcome;
+      },
+      (error: unknown) => {
+        this.activeController = undefined;
         this.status = "done";
         this.snapshot = undefined;
-      }
-      return outcome;
-    });
+        throw error;
+      },
+    );
   }
 }

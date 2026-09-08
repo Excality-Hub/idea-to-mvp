@@ -1,6 +1,6 @@
 import type { GithubClient } from "../github/client.js";
 import type { readStarterFiles as ReadStarterFiles } from "../github/readStarterFiles.js";
-import type { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch } from "../git.js";
+import type { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch, resetWorkingTree } from "../git.js";
 import type { runAnalystAgent } from "../agents/analyst.js";
 import type { runArchitectAgent } from "../agents/architect.js";
 import type { runDeveloperAgent } from "../agents/developer.js";
@@ -15,7 +15,7 @@ import type {
 import type { RenderClient } from "../deploy/render.js";
 import { formatTracingPackMarkdown, type TracingPackEntry } from "./tracingPack.js";
 import { RunEventBus } from "./events.js";
-import type { RunEvent, StageName } from "./types.js";
+import { ABORTABLE_STAGES, type RunEvent, type StageName } from "./types.js";
 import { AgentStoppedError } from "../claudeAgent.js";
 
 export interface OrchestratorParams {
@@ -34,6 +34,7 @@ export interface OrchestratorDeps {
   git: {
     cloneRepo: typeof cloneRepo;
     createAndCheckoutBranch: typeof createAndCheckoutBranch;
+    resetWorkingTree: typeof resetWorkingTree;
     pushBranch: typeof pushBranch;
     diffAgainstBase: typeof diffAgainstBase;
   };
@@ -109,7 +110,7 @@ interface StageStep {
 const STAGE_STEPS: StageStep[] = [
   {
     name: "create_repo",
-    abortable: false,
+    abortable: ABORTABLE_STAGES.includes("create_repo"),
     async run(ctx, params, deps) {
       const starterFiles = deps.readStarterFiles(params.starterDir);
       ctx.pendingInput = {
@@ -135,7 +136,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "analyst",
-    abortable: true,
+    abortable: ABORTABLE_STAGES.includes("analyst"),
     async run(ctx, params, deps, signal) {
       ctx.pendingInput = { ideaText: params.ideaText };
       deps.eventBus.emit(stageEvent("analyst", "running", "Analyzing idea", { input: ctx.pendingInput }));
@@ -147,7 +148,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "architect",
-    abortable: true,
+    abortable: ABORTABLE_STAGES.includes("architect"),
     async run(ctx, params, deps, signal) {
       ctx.pendingInput = { analystOutput: ctx.analystOutput };
       deps.eventBus.emit(stageEvent("architect", "running", "Planning implementation", { input: ctx.pendingInput }));
@@ -164,7 +165,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "open_issue",
-    abortable: false,
+    abortable: ABORTABLE_STAGES.includes("open_issue"),
     async run(ctx, params, deps) {
       ctx.pendingInput = { title: ctx.architectOutput!.issueTitle, body: ctx.architectOutput!.issueBody };
       deps.eventBus.emit(stageEvent("open_issue", "running", "Opening GitHub issue", { input: ctx.pendingInput }));
@@ -181,7 +182,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "developer",
-    abortable: true,
+    abortable: ABORTABLE_STAGES.includes("developer"),
     async run(ctx, params, deps, signal) {
       ctx.pendingInput = { issueBody: ctx.architectOutput!.issueBody };
       deps.eventBus.emit(stageEvent("developer", "running", "Implementing the plan", { input: ctx.pendingInput }));
@@ -190,6 +191,7 @@ const STAGE_STEPS: StageStep[] = [
         ctx.repoCloned = true;
       }
       await deps.git.createAndCheckoutBranch(params.workDir, ctx.architectOutput!.branchName);
+      await deps.git.resetWorkingTree(params.workDir);
       const developerOutput = await deps.agents.developer(ctx.architectOutput!.issueBody, params.workDir, signal);
       await deps.git.pushBranch(params.workDir, ctx.architectOutput!.branchName, params.githubToken);
       deps.eventBus.emit(stageEvent("developer", "done", developerOutput.prTitle, { output: developerOutput }));
@@ -204,7 +206,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "open_pr",
-    abortable: false,
+    abortable: ABORTABLE_STAGES.includes("open_pr"),
     async run(ctx, params, deps) {
       ctx.pendingInput = {
         title: ctx.developerOutput!.prTitle,
@@ -229,7 +231,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "qa",
-    abortable: true,
+    abortable: ABORTABLE_STAGES.includes("qa"),
     async run(ctx, params, deps, signal) {
       ctx.pendingInput = undefined;
       deps.eventBus.emit(stageEvent("qa", "running", "Reviewing the pull request"));
@@ -244,7 +246,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "post_review",
-    abortable: false,
+    abortable: ABORTABLE_STAGES.includes("post_review"),
     async run(ctx, params, deps) {
       const comment = formatQaComment(ctx.qaOutput!);
       ctx.pendingInput = { comment };
@@ -261,7 +263,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "merge",
-    abortable: false,
+    abortable: ABORTABLE_STAGES.includes("merge"),
     guard: (ctx) => ctx.qaOutput!.findings.some((f) => f.severity === "critical"),
     async run(ctx, params, deps) {
       ctx.pendingInput = { prNumber: ctx.pr!.number };
@@ -273,7 +275,7 @@ const STAGE_STEPS: StageStep[] = [
   },
   {
     name: "deploy",
-    abortable: false,
+    abortable: ABORTABLE_STAGES.includes("deploy"),
     async run(ctx, params, deps) {
       ctx.pendingInput = { name: params.repoName, repoUrl: ctx.repo!.htmlUrl, branch: BASE_BRANCH };
       deps.eventBus.emit(stageEvent("deploy", "running", "Deploying to Render", { input: ctx.pendingInput }));
@@ -294,7 +296,7 @@ export async function runOrchestrator(
   params: OrchestratorParams,
   deps: OrchestratorDeps,
   resumeState?: ResumeState,
-  signal?: AbortSignal,
+  onAbortableStep?: (controller: AbortController | undefined) => void,
 ): Promise<RunOutcome> {
   const ctx: PipelineContext = resumeState?.ctx ?? { tracingEntries: [] };
   const startIndex = resumeState?.stageIndex ?? 0;
@@ -338,8 +340,10 @@ export async function runOrchestrator(
       await commitTracingPack("blocked");
       return { status: "blocked", findings: ctx.qaOutput!.findings, prUrl: ctx.pr!.htmlUrl };
     }
+    const controller = step.abortable ? new AbortController() : undefined;
+    if (step.abortable) onAbortableStep?.(controller);
     try {
-      await step.run(ctx, params, deps, step.abortable ? signal : undefined);
+      await step.run(ctx, params, deps, controller?.signal);
     } catch (error) {
       if (error instanceof AgentStoppedError) {
         deps.eventBus.emit(stageEvent(currentStage, "stopped", "Stopped by user"));
@@ -350,6 +354,8 @@ export async function runOrchestrator(
       ctx.tracingEntries.push({ stage: currentStage, status: "failed", input: ctx.pendingInput, output: err.message });
       await commitTracingPack("failed");
       return { status: "failed", stage: currentStage, error: err.message };
+    } finally {
+      if (step.abortable) onAbortableStep?.(undefined);
     }
   }
 

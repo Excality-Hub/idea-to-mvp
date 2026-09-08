@@ -6,7 +6,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 import { execFile } from "node:child_process";
-import { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch } from "./git.js";
+import { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch, resetWorkingTree } from "./git.js";
 
 type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
@@ -49,6 +49,30 @@ describe("git helper", () => {
     expect(execFile).toHaveBeenCalledWith(
       "git",
       ["checkout", "-B", "feature/x"],
+      { cwd: "/tmp/work" },
+      expect.any(Function),
+    );
+  });
+
+  it("resetWorkingTree runs git reset --hard then git clean -fd in the repo dir", async () => {
+    // This is the only test here that asserts on call *ordering*, and the shared
+    // execFile mock accumulates calls across tests (vitest's clearMocks is off),
+    // so drop the earlier tests' calls to make the nth-call indices below local.
+    vi.mocked(execFile).mockClear();
+    mockExecFileOnce("");
+    mockExecFileOnce("");
+    await resetWorkingTree("/tmp/work");
+    expect(execFile).toHaveBeenNthCalledWith(
+      1,
+      "git",
+      ["reset", "--hard"],
+      { cwd: "/tmp/work" },
+      expect.any(Function),
+    );
+    expect(execFile).toHaveBeenNthCalledWith(
+      2,
+      "git",
+      ["clean", "-fd"],
       { cwd: "/tmp/work" },
       expect.any(Function),
     );

@@ -36,6 +36,7 @@ function makeConfig(): RunControllerConfig {
   const git = {
     cloneRepo: vi.fn().mockResolvedValue(undefined),
     createAndCheckoutBranch: vi.fn().mockResolvedValue(undefined),
+    resetWorkingTree: vi.fn().mockResolvedValue(undefined),
     pushBranch: vi.fn().mockResolvedValue(undefined),
     diffAgainstBase: vi.fn().mockResolvedValue("diff --git a/server.js b/server.js"),
   };

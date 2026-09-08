@@ -21,6 +21,12 @@ const eventsByStage: EventsByStage = {
   ],
 };
 
+const deployedEventsByStage: EventsByStage = {
+  deploy: [
+    { stage: "deploy", status: "done", message: "https://app.onrender.com", timestamp: "2026-01-01T00:05:00.000Z" },
+  ],
+};
+
 describe("WorkflowsView", () => {
   it("renders a node for every pipeline stage", () => {
     const { container } = render(<WorkflowsView eventsByStage={eventsByStage} />);
@@ -79,5 +85,21 @@ describe("WorkflowsView", () => {
     render(<WorkflowsView eventsByStage={eventsByStage} />);
 
     expect(screen.queryByLabelText("Idea")).not.toBeInTheDocument();
+  });
+
+  it("shows a 'Start a new run' button once the run reaches a terminal outcome", () => {
+    render(<WorkflowsView eventsByStage={deployedEventsByStage} />);
+
+    expect(screen.getByRole("button", { name: "Start a new run" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Idea")).not.toBeInTheDocument();
+  });
+
+  it("reveals the idea form when 'Start a new run' is clicked", async () => {
+    const user = userEvent.setup();
+    render(<WorkflowsView eventsByStage={deployedEventsByStage} />);
+
+    await user.click(screen.getByRole("button", { name: "Start a new run" }));
+
+    expect(screen.getByLabelText("Idea")).toBeInTheDocument();
   });
 });

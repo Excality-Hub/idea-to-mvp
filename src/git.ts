@@ -34,6 +34,11 @@ export async function createAndCheckoutBranch(repoDir: string, branchName: strin
   await execFileAsync("git", ["checkout", "-B", branchName], { cwd: repoDir });
 }
 
+export async function resetWorkingTree(repoDir: string): Promise<void> {
+  await execFileAsync("git", ["reset", "--hard"], { cwd: repoDir });
+  await execFileAsync("git", ["clean", "-fd"], { cwd: repoDir });
+}
+
 export async function pushBranch(repoDir: string, branchName: string, token: string): Promise<void> {
   try {
     await execFileAsync(

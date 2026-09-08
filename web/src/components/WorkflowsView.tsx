@@ -13,15 +13,20 @@ interface WorkflowsViewProps {
 }
 
 const nodeTypes = { stage: StageNode };
+const TERMINAL_STATUSES = new Set(["deployed", "blocked", "failed"]);
 
 export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
   const [selectedStage, setSelectedStage] = useState<StageName | null>(null);
   const [ideaText, setIdeaText] = useState("");
   const [starting, setStarting] = useState(false);
+  const [showStartForm, setShowStartForm] = useState(false);
 
   const nodes = useMemo(() => buildStageNodes(eventsByStage), [eventsByStage]);
   const edges = useMemo(() => buildStageEdges(eventsByStage), [eventsByStage]);
-  const isIdle = deriveOverallStatus(eventsByStage) === "idle";
+  const overallStatus = deriveOverallStatus(eventsByStage);
+  const isIdle = overallStatus === "idle";
+  const isTerminal = TERMINAL_STATUSES.has(overallStatus);
+  const showForm = isIdle || (isTerminal && showStartForm);
 
   const selectedEvents = selectedStage ? (eventsByStage[selectedStage] ?? []) : [];
 
@@ -40,13 +45,20 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
 
   return (
     <div className="flex h-full w-full flex-col gap-4 p-6">
-      <div>
-        <h1 className="font-heading text-xl font-semibold text-foreground">Workflows</h1>
-        <p className="text-sm text-muted-foreground">
-          Live pipeline stages for the current run. Click a stage to see its full log.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-heading text-xl font-semibold text-foreground">Workflows</h1>
+          <p className="text-sm text-muted-foreground">
+            Live pipeline stages for the current run. Click a stage to see its full log.
+          </p>
+        </div>
+        {isTerminal && !showStartForm && (
+          <Button variant="outline" size="sm" onClick={() => setShowStartForm(true)}>
+            Start a new run
+          </Button>
+        )}
       </div>
-      {isIdle ? (
+      {showForm ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-card p-6">
           <label htmlFor="idea-text" className="text-sm font-medium text-foreground">
             Idea
@@ -92,7 +104,7 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
         label={selectedStage ? STAGE_LABELS[selectedStage] : undefined}
         status={deriveStageStatus(selectedEvents)}
         events={selectedEvents}
-        open={selectedStage !== null}
+        open={selectedStage !== null && !showForm}
         onOpenChange={(open) => {
           if (!open) setSelectedStage(null);
         }}

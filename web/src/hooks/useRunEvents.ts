@@ -15,7 +15,10 @@ export function useRunEvents(): UseRunEventsResult {
   useEffect(() => {
     const source = new EventSource("/events");
 
-    source.onopen = () => setConnected(true);
+    source.onopen = () => {
+      setEvents([]);
+      setConnected(true);
+    };
     source.onerror = () => setConnected(false);
     source.onmessage = (message) => {
       const event = JSON.parse(message.data) as RunEvent;

@@ -37,6 +37,7 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
   const git = {
     cloneRepo: vi.fn().mockResolvedValue(undefined),
     createAndCheckoutBranch: vi.fn().mockResolvedValue(undefined),
+    resetWorkingTree: vi.fn().mockResolvedValue(undefined),
     pushBranch: vi.fn().mockResolvedValue(undefined),
     diffAgainstBase: vi.fn().mockResolvedValue("diff --git a/server.js b/server.js"),
   };
@@ -244,10 +245,7 @@ describe("runOrchestrator", () => {
           signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
         }),
     );
-    const controller = new AbortController();
-    controller.abort();
-
-    const outcome = await runOrchestrator(params, deps, undefined, controller.signal);
+    const outcome = await runOrchestrator(params, deps, undefined, (controller) => controller?.abort());
 
     expect(outcome.status).toBe("stopped");
     if (outcome.status === "stopped") {
@@ -270,9 +268,7 @@ describe("runOrchestrator", () => {
           signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
         }),
     );
-    const controller = new AbortController();
-    controller.abort();
-    const stopped = await runOrchestrator(params, deps, undefined, controller.signal);
+    const stopped = await runOrchestrator(params, deps, undefined, (controller) => controller?.abort());
     if (stopped.status !== "stopped") throw new Error("expected a stopped outcome");
 
     const outcome = await runOrchestrator(params, deps, stopped.resumeState);
@@ -294,15 +290,48 @@ describe("runOrchestrator", () => {
           signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
         }),
     );
-    const controller = new AbortController();
-    controller.abort();
-    const stopped = await runOrchestrator(params, deps, undefined, controller.signal);
+    const stopped = await runOrchestrator(params, deps, undefined, (controller) => controller?.abort());
     if (stopped.status !== "stopped") throw new Error("expected a stopped outcome");
 
     const outcome = await runOrchestrator(params, deps, stopped.resumeState);
 
     expect(deps.git.cloneRepo).toHaveBeenCalledTimes(1);
     expect(deps.git.createAndCheckoutBranch).toHaveBeenCalledTimes(2);
+    expect(deps.git.resetWorkingTree).toHaveBeenCalledTimes(2);
     expect(outcome.status).toBe("deployed");
+  });
+
+  it("does not let a stop that lands after an abortable stage's agent call already resolved poison a later abortable stage", async () => {
+    const deps = makeDeps();
+    // qa must actually honour its signal for this test to have teeth: with the old
+    // run-scoped signal, qa would inherit developer's already-aborted signal and
+    // stop here, so an inert qa mock would let the buggy design pass.
+    vi.mocked(deps.agents.qa).mockImplementation(
+      (_diff: string, _cwd: string, signal?: AbortSignal) =>
+        new Promise((resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new AgentStoppedError());
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
+          resolve({ verdict: "pass", findings: [] });
+        }),
+    );
+    let developerController: AbortController | undefined;
+
+    const outcome = await runOrchestrator(params, deps, undefined, (controller) => {
+      if (controller) {
+        developerController = controller;
+      } else {
+        // This branch runs once developer's run() (agent call + pushBranch) has
+        // fully finished. Aborting the now-stale controller here simulates a
+        // stop() request that physically arrives after developer's agent call
+        // already resolved. It must not affect qa's later, separate controller.
+        developerController?.abort();
+      }
+    });
+
+    expect(outcome.status).toBe("deployed");
+    expect(deps.agents.qa).toHaveBeenCalled();
   });
 });

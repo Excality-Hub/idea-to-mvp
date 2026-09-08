@@ -14,7 +14,7 @@ import { createDashboardServer } from "./dashboard/server.js";
 import { RenderClient } from "./deploy/render.js";
 import { GithubClient } from "./github/client.js";
 import { readStarterFiles } from "./github/readStarterFiles.js";
-import { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch } from "./git.js";
+import { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch, resetWorkingTree } from "./git.js";
 import { RunController } from "./orchestrator/runController.js";
 
 export function parseArgs(argv: string[]): { ideaFilePath: string } | null {
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
     deps: {
       github: new GithubClient(octokit),
       render: new RenderClient(config.renderApiKey),
-      git: { cloneRepo, createAndCheckoutBranch, pushBranch, diffAgainstBase },
+      git: { cloneRepo, createAndCheckoutBranch, resetWorkingTree, pushBranch, diffAgainstBase },
       agents: {
         analyst: runAnalystAgent,
         architect: runArchitectAgent,
@@ -60,7 +60,7 @@ async function main(): Promise<void> {
   });
 
   const app = createDashboardServer(controller);
-  app.listen(config.port, () => {
+  app.listen(config.port, "127.0.0.1", () => {
     console.log(`Dashboard listening on http://localhost:${config.port}`);
   });
   await open(`http://localhost:${config.port}`);
