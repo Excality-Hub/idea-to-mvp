@@ -31,7 +31,7 @@ export async function cloneRepo(cloneUrl: string, targetDir: string, token: stri
 }
 
 export async function createAndCheckoutBranch(repoDir: string, branchName: string): Promise<void> {
-  await execFileAsync("git", ["checkout", "-b", branchName], { cwd: repoDir });
+  await execFileAsync("git", ["checkout", "-B", branchName], { cwd: repoDir });
 }
 
 export async function pushBranch(repoDir: string, branchName: string, token: string): Promise<void> {

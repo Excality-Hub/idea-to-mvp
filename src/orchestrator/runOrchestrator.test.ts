@@ -281,4 +281,28 @@ describe("runOrchestrator", () => {
     expect(deps.git.createAndCheckoutBranch).toHaveBeenCalledTimes(2);
     expect(deps.github.mergePullRequest).toHaveBeenCalled();
   });
+
+  it("does not re-clone the repo on resume, but does re-checkout the branch to discard partial edits", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.developer).mockImplementationOnce(
+      (_issueBody: string, _cwd: string, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new AgentStoppedError());
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
+        }),
+    );
+    const controller = new AbortController();
+    controller.abort();
+    const stopped = await runOrchestrator(params, deps, undefined, controller.signal);
+    if (stopped.status !== "stopped") throw new Error("expected a stopped outcome");
+
+    const outcome = await runOrchestrator(params, deps, stopped.resumeState);
+
+    expect(deps.git.cloneRepo).toHaveBeenCalledTimes(1);
+    expect(deps.git.createAndCheckoutBranch).toHaveBeenCalledTimes(2);
+    expect(outcome.status).toBe("deployed");
+  });
 });

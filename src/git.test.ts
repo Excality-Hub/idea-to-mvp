@@ -43,12 +43,12 @@ describe("git helper", () => {
     );
   });
 
-  it("createAndCheckoutBranch runs git checkout -b in the repo dir", async () => {
+  it("createAndCheckoutBranch runs git checkout -B in the repo dir", async () => {
     mockExecFileOnce("");
     await createAndCheckoutBranch("/tmp/work", "feature/x");
     expect(execFile).toHaveBeenCalledWith(
       "git",
-      ["checkout", "-b", "feature/x"],
+      ["checkout", "-B", "feature/x"],
       { cwd: "/tmp/work" },
       expect.any(Function),
     );

@@ -72,6 +72,7 @@ export interface PipelineContext {
   tracingEntries: TracingPackEntry[];
   pendingInput?: unknown;
   repo?: { owner: string; repo: string; htmlUrl: string; cloneUrl: string };
+  repoCloned?: boolean;
   analystOutput?: AnalystOutput;
   architectOutput?: ArchitectOutput;
   issue?: { number: number };
@@ -184,7 +185,10 @@ const STAGE_STEPS: StageStep[] = [
     async run(ctx, params, deps, signal) {
       ctx.pendingInput = { issueBody: ctx.architectOutput!.issueBody };
       deps.eventBus.emit(stageEvent("developer", "running", "Implementing the plan", { input: ctx.pendingInput }));
-      await deps.git.cloneRepo(ctx.repo!.cloneUrl, params.workDir, params.githubToken);
+      if (!ctx.repoCloned) {
+        await deps.git.cloneRepo(ctx.repo!.cloneUrl, params.workDir, params.githubToken);
+        ctx.repoCloned = true;
+      }
       await deps.git.createAndCheckoutBranch(params.workDir, ctx.architectOutput!.branchName);
       const developerOutput = await deps.agents.developer(ctx.architectOutput!.issueBody, params.workDir, signal);
       await deps.git.pushBranch(params.workDir, ctx.architectOutput!.branchName, params.githubToken);
