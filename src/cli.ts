@@ -11,7 +11,9 @@ import { runDeveloperAgent } from "./agents/developer.js";
 import { runQaAgent } from "./agents/qa.js";
 import { loadConfig } from "./config.js";
 import { createDashboardServer } from "./dashboard/server.js";
+import { CloudflareClient } from "./deploy/cloudflare.js";
 import { RenderClient } from "./deploy/render.js";
+import type { DeployClient } from "./deploy/types.js";
 import { GithubClient } from "./github/client.js";
 import { readStarterFiles } from "./github/readStarterFiles.js";
 import { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch, resetWorkingTree } from "./git.js";
@@ -37,13 +39,21 @@ async function main(): Promise<void> {
   const ideaText = readFileSync(parsed.ideaFilePath, "utf-8");
 
   const octokit = new Octokit({ auth: config.githubToken });
+  const starterDir =
+    config.deployTarget === "cloudflare"
+      ? fileURLToPath(new URL("../templates/starter-cloudflare", import.meta.url))
+      : fileURLToPath(new URL("../templates/starter-render", import.meta.url));
+  const deployClient: DeployClient =
+    config.deployTarget === "cloudflare"
+      ? new CloudflareClient(config.cloudflareApiToken!, config.cloudflareAccountId!)
+      : new RenderClient(config.renderApiKey!, config.renderOwnerId!);
   const controller = new RunController({
     owner: config.targetGithubOwner,
-    starterDir: fileURLToPath(new URL("../templates/starter", import.meta.url)),
+    starterDir,
     githubToken: config.githubToken,
     deps: {
       github: new GithubClient(octokit),
-      render: new RenderClient(config.renderApiKey, config.renderOwnerId),
+      deploy: deployClient,
       git: { cloneRepo, createAndCheckoutBranch, resetWorkingTree, pushBranch, diffAgainstBase },
       agents: {
         analyst: runAnalystAgent,
