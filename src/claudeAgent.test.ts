@@ -172,4 +172,13 @@ describe("parseJsonBlock", () => {
     const text = 'First attempt:\n```json\n{"ok": false}\n```\nActually, final answer:\n```json\n{"ok": true}\n```';
     expect(parseJsonBlock(text, schema)).toEqual({ ok: true });
   });
+
+  it("does not close the fence early when a string value contains an inline triple-backtick", () => {
+    const bodySchema = z.object({ issueBody: z.string() });
+    const text =
+      'Plan:\n```json\n{"issueBody": "Add a snippet like ```js\\nconsole.log(1)\\n``` to the README."}\n```';
+    expect(parseJsonBlock(text, bodySchema)).toEqual({
+      issueBody: "Add a snippet like ```js\nconsole.log(1)\n``` to the README.",
+    });
+  });
 });

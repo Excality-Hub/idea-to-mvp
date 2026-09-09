@@ -90,7 +90,7 @@ export function extractClaudeResultText(rawOutput: string): string {
 }
 
 export function parseJsonBlock<T>(text: string, schema: z.ZodType<T>): T {
-  const matches = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
+  const matches = [...text.matchAll(/```json[ \t]*\r?\n([\s\S]*?)\r?\n```(?=[ \t]*(?:\r?\n|$))/g)];
   if (matches.length === 0) {
     throw new Error("No fenced ```json block found in agent output");
   }
