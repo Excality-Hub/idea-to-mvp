@@ -1,9 +1,22 @@
-export class RenderClient {
+import type { DeployClient, DeployParams, DeployResult } from "./types.js";
+
+export class RenderClient implements DeployClient {
+  readonly label = "Render";
+
   constructor(
     private apiKey: string,
     private ownerId: string,
     private fetchImpl: typeof fetch = fetch,
   ) {}
+
+  async deploy(params: DeployParams): Promise<DeployResult> {
+    const service = await this.createService({
+      name: params.name,
+      repoUrl: params.repoUrl,
+      branch: params.branch,
+    });
+    return this.waitForLive(service.serviceId, { maxAttempts: 30, pollIntervalMs: 10_000 });
+  }
 
   async createService(params: { name: string; repoUrl: string; branch: string }): Promise<{ serviceId: string }> {
     const res = await this.fetchImpl("https://api.render.com/v1/services", {

@@ -55,4 +55,22 @@ describe("RenderClient", () => {
       "Render service srv-1 did not become live after 2 attempts",
     );
   });
+
+  it("deploy creates a service, waits for it to be live, and returns its url", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ service: { id: "srv-1" } }))
+      .mockResolvedValueOnce(jsonResponse({ service: { serviceDetails: { url: "https://app.onrender.com" } } }));
+    const client = new RenderClient("key-1", "owner-1", fetchImpl);
+
+    const result = await client.deploy({
+      name: "app",
+      repoUrl: "https://github.com/org/app",
+      branch: "main",
+      workDir: "/tmp/work",
+    });
+
+    expect(result).toEqual({ url: "https://app.onrender.com" });
+    expect(client.label).toBe("Render");
+  });
 });
