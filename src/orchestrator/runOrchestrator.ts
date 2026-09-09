@@ -12,7 +12,7 @@ import type {
   QAFinding,
   QAOutput,
 } from "../agents/schemas.js";
-import type { RenderClient } from "../deploy/render.js";
+import type { DeployClient } from "../deploy/types.js";
 import { formatTracingPackMarkdown, type TracingPackEntry } from "./tracingPack.js";
 import { RunEventBus } from "./events.js";
 import { ABORTABLE_STAGES, type RunEvent, type StageName } from "./types.js";
@@ -30,7 +30,7 @@ export interface OrchestratorParams {
 export interface OrchestratorDeps {
   eventBus: RunEventBus;
   github: GithubClient;
-  render: RenderClient;
+  deploy: DeployClient;
   git: {
     cloneRepo: typeof cloneRepo;
     createAndCheckoutBranch: typeof createAndCheckoutBranch;
@@ -277,14 +277,19 @@ const STAGE_STEPS: StageStep[] = [
     name: "deploy",
     abortable: ABORTABLE_STAGES.includes("deploy"),
     async run(ctx, params, deps) {
-      ctx.pendingInput = { name: params.repoName, repoUrl: ctx.repo!.htmlUrl, branch: BASE_BRANCH };
-      deps.eventBus.emit(stageEvent("deploy", "running", "Deploying to Render", { input: ctx.pendingInput }));
-      const service = await deps.render.createService({
+      ctx.pendingInput = {
         name: params.repoName,
         repoUrl: ctx.repo!.htmlUrl,
         branch: BASE_BRANCH,
+        workDir: params.workDir,
+      };
+      deps.eventBus.emit(stageEvent("deploy", "running", `Deploying to ${deps.deploy.label}`, { input: ctx.pendingInput }));
+      const live = await deps.deploy.deploy({
+        name: params.repoName,
+        repoUrl: ctx.repo!.htmlUrl,
+        branch: BASE_BRANCH,
+        workDir: params.workDir,
       });
-      const live = await deps.render.waitForLive(service.serviceId, { maxAttempts: 30, pollIntervalMs: 10_000 });
       deps.eventBus.emit(stageEvent("deploy", "done", live.url, { output: live }));
       ctx.tracingEntries.push({ stage: "deploy", status: "done", input: ctx.pendingInput, output: live });
       ctx.deployUrl = live.url;

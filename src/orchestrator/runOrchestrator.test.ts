@@ -30,9 +30,9 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
     mergePullRequest: vi.fn().mockResolvedValue(undefined),
     commitFile: vi.fn().mockResolvedValue({ sha: "tracing-pack-sha" }),
   };
-  const render = {
-    createService: vi.fn().mockResolvedValue({ serviceId: "srv-1" }),
-    waitForLive: vi.fn().mockResolvedValue({ url: "https://idea-to-mvp-app-1.onrender.com" }),
+  const deploy = {
+    label: "Render",
+    deploy: vi.fn().mockResolvedValue({ url: "https://idea-to-mvp-app-1.onrender.com" }),
   };
   const git = {
     cloneRepo: vi.fn().mockResolvedValue(undefined),
@@ -61,7 +61,7 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
   return {
     eventBus: new RunEventBus(),
     github: github as never,
-    render: render as never,
+    deploy: deploy as never,
     git: git as never,
     agents: agents as never,
     readStarterFiles: vi.fn().mockReturnValue([{ path: "package.json", content: "{}" }]),
@@ -83,10 +83,11 @@ describe("runOrchestrator", () => {
       prUrl: "https://github.com/org/idea-to-mvp-app-1/pull/2",
     });
     expect(deps.github.mergePullRequest).toHaveBeenCalledWith("org", "idea-to-mvp-app-1", 2);
-    expect(deps.render.createService).toHaveBeenCalledWith({
+    expect(deps.deploy.deploy).toHaveBeenCalledWith({
       name: "idea-to-mvp-app-1",
       repoUrl: "https://github.com/org/idea-to-mvp-app-1",
       branch: "main",
+      workDir: "/tmp/work",
     });
     expect(events).toEqual([
       "create_repo:running",
@@ -171,7 +172,7 @@ describe("runOrchestrator", () => {
 
     expect(outcome.status).toBe("blocked");
     expect(deps.github.mergePullRequest).not.toHaveBeenCalled();
-    expect(deps.render.createService).not.toHaveBeenCalled();
+    expect(deps.deploy.deploy).not.toHaveBeenCalled();
     expect(deps.github.commitFile).toHaveBeenCalledTimes(1);
     const [, , , content] = vi.mocked(deps.github.commitFile).mock.calls[0];
     expect(content).toContain("Outcome: **blocked**");
@@ -230,7 +231,7 @@ describe("runOrchestrator", () => {
 
     expect(outcome.status).toBe("deployed");
     expect(deps.github.mergePullRequest).toHaveBeenCalledWith("org", "idea-to-mvp-app-1", 2);
-    expect(deps.render.createService).toHaveBeenCalled();
+    expect(deps.deploy.deploy).toHaveBeenCalled();
   });
 
   it("stops the run when the developer agent is aborted, without committing a tracing pack", async () => {

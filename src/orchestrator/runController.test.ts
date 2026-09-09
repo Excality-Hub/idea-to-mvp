@@ -29,9 +29,9 @@ function makeConfig(): RunControllerConfig {
     mergePullRequest: vi.fn().mockResolvedValue(undefined),
     commitFile: vi.fn().mockResolvedValue({ sha: "sha" }),
   };
-  const render = {
-    createService: vi.fn().mockResolvedValue({ serviceId: "srv-1" }),
-    waitForLive: vi.fn().mockResolvedValue({ url: "https://app.onrender.com" }),
+  const deploy = {
+    label: "Render",
+    deploy: vi.fn().mockResolvedValue({ url: "https://app.onrender.com" }),
   };
   const git = {
     cloneRepo: vi.fn().mockResolvedValue(undefined),
@@ -52,7 +52,7 @@ function makeConfig(): RunControllerConfig {
     githubToken: "test-token",
     deps: {
       github: github as never,
-      render: render as never,
+      deploy: deploy as never,
       git: git as never,
       agents: agents as never,
       readStarterFiles: vi.fn().mockReturnValue([{ path: "package.json", content: "{}" }]),
