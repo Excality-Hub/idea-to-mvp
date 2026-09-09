@@ -4,21 +4,30 @@ import { promisify } from "node:util";
 // Use promisify which has built-in support for execFile's multi-value callback
 const execFileAsync = promisify(execFileCallback);
 
-// Replaces every literal occurrence of `token` in `message` with "***". Used to
-// scrub the GitHub token out of error messages before they can be logged,
-// surfaced over SSE, or committed into the tracing pack - execFile's promisified
-// rejection includes the full argv (which embeds the token via the
-// http.extraheader auth arg) in its error message.
+// Replaces every literal occurrence of `token` (and the base64-encoded Basic
+// auth credentials derived from it) in `message` with "***". Used to scrub the
+// GitHub token out of error messages before they can be logged, surfaced over
+// SSE, or committed into the tracing pack - execFile's promisified rejection
+// includes the full argv (which embeds the token via the http.extraheader auth
+// arg) in its error message.
 export function redactToken(message: string, token: string): string {
   if (!token) return message;
-  return message.split(token).join("***");
+  return message.split(token).join("***").split(basicAuthHeaderValue(token)).join("***");
+}
+
+// GitHub's git-over-HTTPS smart protocol only accepts HTTP Basic auth (any
+// non-empty username with the token as the password) - it rejects a raw
+// "Bearer <token>" Authorization header with "invalid credentials". This
+// matches what GitHub's own actions/checkout uses.
+function basicAuthHeaderValue(token: string): string {
+  return Buffer.from(`x-access-token:${token}`).toString("base64");
 }
 
 export async function cloneRepo(cloneUrl: string, targetDir: string, token: string): Promise<void> {
   try {
     await execFileAsync("git", [
       "-c",
-      `http.extraheader=AUTHORIZATION: bearer ${token}`,
+      `http.extraheader=AUTHORIZATION: basic ${basicAuthHeaderValue(token)}`,
       "clone",
       cloneUrl,
       targetDir,
@@ -43,7 +52,7 @@ export async function pushBranch(repoDir: string, branchName: string, token: str
   try {
     await execFileAsync(
       "git",
-      ["-c", `http.extraheader=AUTHORIZATION: bearer ${token}`, "push", "-u", "origin", branchName],
+      ["-c", `http.extraheader=AUTHORIZATION: basic ${basicAuthHeaderValue(token)}`, "push", "-u", "origin", branchName],
       { cwd: repoDir },
     );
   } catch (error) {

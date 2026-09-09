@@ -27,14 +27,15 @@ function mockExecFileFailureOnce(error: Error) {
 }
 
 describe("git helper", () => {
-  it("cloneRepo runs git clone with the url and target dir, authenticated with a bearer token header", async () => {
+  it("cloneRepo runs git clone with the url and target dir, authenticated with a Basic auth header", async () => {
     mockExecFileOnce("");
     await cloneRepo("git@github.com:org/repo.git", "/tmp/work", "test-token");
+    const credentials = Buffer.from("x-access-token:test-token").toString("base64");
     expect(execFile).toHaveBeenCalledWith(
       "git",
       [
         "-c",
-        "http.extraheader=AUTHORIZATION: bearer test-token",
+        `http.extraheader=AUTHORIZATION: basic ${credentials}`,
         "clone",
         "git@github.com:org/repo.git",
         "/tmp/work",
@@ -78,14 +79,15 @@ describe("git helper", () => {
     );
   });
 
-  it("pushBranch runs git push -u origin <branch> in the repo dir, authenticated with a bearer token header", async () => {
+  it("pushBranch runs git push -u origin <branch> in the repo dir, authenticated with a Basic auth header", async () => {
     mockExecFileOnce("");
     await pushBranch("/tmp/work", "feature/x", "test-token");
+    const credentials = Buffer.from("x-access-token:test-token").toString("base64");
     expect(execFile).toHaveBeenCalledWith(
       "git",
       [
         "-c",
-        "http.extraheader=AUTHORIZATION: bearer test-token",
+        `http.extraheader=AUTHORIZATION: basic ${credentials}`,
         "push",
         "-u",
         "origin",
@@ -96,11 +98,12 @@ describe("git helper", () => {
     );
   });
 
-  it("cloneRepo redacts the token from a rejected error's message so it never leaks in logs or committed docs", async () => {
+  it("cloneRepo redacts the token and its Basic auth encoding from a rejected error's message so it never leaks in logs or committed docs", async () => {
     const token = "ghp_supersecrettoken123";
+    const credentials = Buffer.from(`x-access-token:${token}`).toString("base64");
     mockExecFileFailureOnce(
       new Error(
-        `Command failed: git -c http.extraheader=AUTHORIZATION: bearer ${token} clone git@github.com:org/repo.git /tmp/work`,
+        `Command failed: git -c http.extraheader=AUTHORIZATION: basic ${credentials} clone git@github.com:org/repo.git /tmp/work`,
       ),
     );
 
@@ -110,15 +113,17 @@ describe("git helper", () => {
     } catch (error) {
       const message = (error as Error).message;
       expect(message).not.toContain(token);
+      expect(message).not.toContain(credentials);
       expect(message).toContain("***");
     }
   });
 
-  it("pushBranch redacts the token from a rejected error's message so it never leaks in logs or committed docs", async () => {
+  it("pushBranch redacts the token and its Basic auth encoding from a rejected error's message so it never leaks in logs or committed docs", async () => {
     const token = "ghp_supersecrettoken123";
+    const credentials = Buffer.from(`x-access-token:${token}`).toString("base64");
     mockExecFileFailureOnce(
       new Error(
-        `Command failed: git -c http.extraheader=AUTHORIZATION: bearer ${token} push -u origin feature/x`,
+        `Command failed: git -c http.extraheader=AUTHORIZATION: basic ${credentials} push -u origin feature/x`,
       ),
     );
 
@@ -128,6 +133,7 @@ describe("git helper", () => {
     } catch (error) {
       const message = (error as Error).message;
       expect(message).not.toContain(token);
+      expect(message).not.toContain(credentials);
       expect(message).toContain("***");
     }
   });
