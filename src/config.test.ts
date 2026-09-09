@@ -5,6 +5,7 @@ const validEnv = {
   GITHUB_TOKEN: "gh-token",
   TARGET_GITHUB_OWNER: "excality-sandbox",
   RENDER_API_KEY: "render-key",
+  RENDER_OWNER_ID: "owner-id",
 };
 
 describe("loadConfig", () => {
@@ -13,6 +14,7 @@ describe("loadConfig", () => {
       githubToken: "gh-token",
       targetGithubOwner: "excality-sandbox",
       renderApiKey: "render-key",
+      renderOwnerId: "owner-id",
       port: 3000,
     });
   });
@@ -34,6 +36,11 @@ describe("loadConfig", () => {
   it("throws if RENDER_API_KEY is missing", () => {
     const { RENDER_API_KEY, ...rest } = validEnv;
     expect(() => loadConfig(rest)).toThrow("RENDER_API_KEY is required");
+  });
+
+  it("throws if RENDER_OWNER_ID is missing", () => {
+    const { RENDER_OWNER_ID, ...rest } = validEnv;
+    expect(() => loadConfig(rest)).toThrow("RENDER_OWNER_ID is required");
   });
 
   it("throws if PORT is not a number", () => {

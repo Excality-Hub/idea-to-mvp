@@ -1,6 +1,7 @@
 export class RenderClient {
   constructor(
     private apiKey: string,
+    private ownerId: string,
     private fetchImpl: typeof fetch = fetch,
   ) {}
 
@@ -14,6 +15,7 @@ export class RenderClient {
       body: JSON.stringify({
         type: "web_service",
         name: params.name,
+        ownerId: this.ownerId,
         repo: params.repoUrl,
         branch: params.branch,
         serviceDetails: {

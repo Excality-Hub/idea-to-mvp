@@ -43,7 +43,7 @@ async function main(): Promise<void> {
     githubToken: config.githubToken,
     deps: {
       github: new GithubClient(octokit),
-      render: new RenderClient(config.renderApiKey),
+      render: new RenderClient(config.renderApiKey, config.renderOwnerId),
       git: { cloneRepo, createAndCheckoutBranch, resetWorkingTree, pushBranch, diffAgainstBase },
       agents: {
         analyst: runAnalystAgent,

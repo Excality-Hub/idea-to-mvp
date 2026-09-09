@@ -24,6 +24,7 @@ design.
 | `GITHUB_TOKEN` | yes | Create the app repo, issue, PR, comment, and merge |
 | `TARGET_GITHUB_OWNER` | yes | GitHub **organization** new demo repos are created under — use a sandbox org, not a real portfolio org |
 | `RENDER_API_KEY` | yes | Create and deploy the Render service |
+| `RENDER_OWNER_ID` | yes | Render workspace to create the service under (the `owner.id` from `GET https://api.render.com/v1/owners`, e.g. `usr-...`/`tea-...`) |
 | `PORT` | no (default 3000) | Local dashboard HTTP port |
 | `CLAUDE_CLI_COMMAND` | no (default `claude`) | Which CLI binary to spawn for the Analyst/Architect/Developer/QA agents — set this if you invoke Claude Code under a different command (e.g. a separate profile like `claude-personal`) |
 
