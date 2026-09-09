@@ -50,6 +50,10 @@ describe("CloudflareClient", () => {
     expect(uploadUrl).toBe("https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/app");
     expect(uploadInit.method).toBe("PUT");
     expect(uploadInit.headers.Authorization).toBe("Bearer token-1");
+    const [subdomainUrl, subdomainInit] = fetchImpl.mock.calls[1];
+    expect(subdomainUrl).toBe("https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/app/subdomain");
+    expect(subdomainInit.method).toBe("POST");
+    expect(JSON.parse(subdomainInit.body)).toEqual({ enabled: true });
   });
 
   it("deploy throws when the script upload fails", async () => {

@@ -39,7 +39,7 @@ export class CloudflareClient implements DeployClient {
 
   private async enableSubdomain(name: string): Promise<void> {
     const res = await this.fetchImpl(`${API_BASE}/accounts/${this.accountId}/workers/scripts/${name}/subdomain`, {
-      method: "PUT",
+      method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiToken}`,
         "Content-Type": "application/json",
