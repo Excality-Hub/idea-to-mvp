@@ -152,7 +152,8 @@ const STAGE_STEPS: StageStep[] = [
     async run(ctx, params, deps, signal) {
       ctx.pendingInput = { analystOutput: ctx.analystOutput };
       deps.eventBus.emit(stageEvent("architect", "running", "Planning implementation", { input: ctx.pendingInput }));
-      const architectOutput = await deps.agents.architect(ctx.analystOutput!, params.workDir, signal);
+      const starterLayout = params.starterDir.includes("cloudflare") ? "cloudflare" : "render";
+      const architectOutput = await deps.agents.architect(ctx.analystOutput!, params.workDir, starterLayout, signal);
       deps.eventBus.emit(stageEvent("architect", "done", architectOutput.issueTitle, { output: architectOutput }));
       ctx.tracingEntries.push({
         stage: "architect",

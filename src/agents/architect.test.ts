@@ -25,9 +25,23 @@ const fakeArchitectJson = {
 
 describe("buildArchitectPrompt", () => {
   it("includes the analyst output and the expected output shape", () => {
-    const prompt = buildArchitectPrompt(analystOutput);
+    const prompt = buildArchitectPrompt(analystOutput, "render");
     expect(prompt).toContain("A todo app");
     expect(prompt).toContain("branchName");
+  });
+
+  it("describes the Express/Render layout by default", () => {
+    const prompt = buildArchitectPrompt(analystOutput);
+    expect(prompt).toContain("Node/Express starter template");
+    expect(prompt).toContain("server.js");
+  });
+
+  it("describes the Cloudflare Workers layout and warns against splitting files", () => {
+    const prompt = buildArchitectPrompt(analystOutput, "cloudflare");
+    expect(prompt).toContain("Cloudflare Workers starter template");
+    expect(prompt).toContain("src/index.js");
+    expect(prompt).not.toContain("Express app");
+    expect(prompt).toContain("only src/index.js is uploaded");
   });
 });
 
@@ -38,7 +52,7 @@ describe("runArchitectAgent", () => {
     });
     vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
 
-    const result = await runArchitectAgent(analystOutput, "/tmp/work");
+    const result = await runArchitectAgent(analystOutput, "/tmp/work", "render");
 
     expect(result).toEqual(fakeArchitectJson);
     expect(runClaudeAgent).toHaveBeenCalledWith({
@@ -55,7 +69,7 @@ describe("runArchitectAgent", () => {
     vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
     const controller = new AbortController();
 
-    await runArchitectAgent(analystOutput, "/tmp/work", controller.signal);
+    await runArchitectAgent(analystOutput, "/tmp/work", "render", controller.signal);
 
     expect(runClaudeAgent).toHaveBeenCalledWith(
       expect.objectContaining({ signal: controller.signal }),

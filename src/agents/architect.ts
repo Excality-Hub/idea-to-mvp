@@ -1,13 +1,29 @@
 import { extractClaudeResultText, parseJsonBlock, runClaudeAgent } from "../claudeAgent.js";
 import { ArchitectOutputSchema, type AnalystOutput, type ArchitectOutput } from "./schemas.js";
 
-export function buildArchitectPrompt(analystOutput: AnalystOutput): string {
-  return [
-    "You are the Architect stage of an idea-to-MVP pipeline.",
+export type StarterLayout = "render" | "cloudflare";
+
+const LAYOUT_BLURBS: Record<StarterLayout, string[]> = {
+  render: [
     "The app will be built inside a fixed Node/Express starter template with this layout:",
     "- package.json (Express dependency, `npm start` runs server.js)",
     "- server.js (a single Express app listening on process.env.PORT)",
     "- README.md",
+  ],
+  cloudflare: [
+    "The app will be built inside a fixed Cloudflare Workers starter template with this layout:",
+    "- package.json (no Express; `npm run dev` runs `wrangler dev` for local iteration)",
+    "- wrangler.toml (Workers configuration)",
+    "- src/index.js (a Workers `fetch(request)` handler - this exact file is what gets deployed)",
+    "- README.md",
+    "IMPORTANT: only src/index.js is uploaded when deploying - keep the entire app in this one file. Do not rename, move, or split it into multiple files/modules.",
+  ],
+};
+
+export function buildArchitectPrompt(analystOutput: AnalystOutput, starterLayout: StarterLayout = "render"): string {
+  return [
+    "You are the Architect stage of an idea-to-MVP pipeline.",
+    ...LAYOUT_BLURBS[starterLayout],
     "",
     "Given the following structured understanding of the idea, produce a concrete implementation plan for the Developer agent.",
     "",
@@ -23,9 +39,10 @@ export function buildArchitectPrompt(analystOutput: AnalystOutput): string {
 export async function runArchitectAgent(
   analystOutput: AnalystOutput,
   cwd: string,
+  starterLayout: StarterLayout,
   signal?: AbortSignal,
 ): Promise<ArchitectOutput> {
-  const prompt = buildArchitectPrompt(analystOutput);
+  const prompt = buildArchitectPrompt(analystOutput, starterLayout);
   const rawOutput = await runClaudeAgent({ prompt, cwd, allowedTools: [], signal });
   const resultText = extractClaudeResultText(rawOutput);
   return parseJsonBlock(resultText, ArchitectOutputSchema);
