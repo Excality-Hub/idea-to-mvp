@@ -33,7 +33,7 @@ export function StageDetailSheet({ label, status, events, open, onOpenChange }: 
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-full flex-col gap-0 sm:max-w-md">
+      <SheetContent className="flex w-full flex-col gap-0 sm:max-w-xl">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             {label}
