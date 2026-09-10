@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { STAGE_ORDER, type StageName } from "@/types";
 
-export function useRunPlan(isIdle: boolean): StageName[] {
+export function useRunPlan(isIdle: boolean, runGeneration: number): StageName[] {
   const [plan, setPlan] = useState<StageName[]>(STAGE_ORDER);
 
   useEffect(() => {
@@ -21,7 +21,7 @@ export function useRunPlan(isIdle: boolean): StageName[] {
     return () => {
       cancelled = true;
     };
-  }, [isIdle]);
+  }, [isIdle, runGeneration]);
 
   return plan;
 }

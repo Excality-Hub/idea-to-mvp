@@ -14,8 +14,8 @@ const SLOTS: { key: SlotKey; label: string }[] = [
 ];
 
 export function PipelinesView() {
-  const { agents } = useAgents();
-  const { workflows, loading, refetch } = useWorkflows();
+  const { agents, error: agentsError } = useAgents();
+  const { workflows, loading, error: workflowsError, refetch } = useWorkflows();
   const [name, setName] = useState("");
   const [slots, setSlots] = useState<Record<SlotKey, string[]>>({
     afterAnalyst: [],
@@ -78,6 +78,7 @@ export function PipelinesView() {
         <p className="text-sm text-muted-foreground">
           Named arrangements of agents around the fixed pipeline backbone.
         </p>
+        {agentsError && <p className="text-sm text-destructive">{agentsError}</p>}
       </div>
 
       <Card>
@@ -145,6 +146,8 @@ export function PipelinesView() {
 
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : workflowsError ? (
+        <p className="text-sm text-destructive">{workflowsError}</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {workflows.map((workflow) => (

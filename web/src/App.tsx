@@ -16,9 +16,15 @@ export function App() {
       <div className="flex min-h-0 flex-1">
         <Sidebar activeView={activeView} onSelect={setActiveView} />
         <main className="flex-1 overflow-hidden">
-          {activeView === "workflows" && <WorkflowsView eventsByStage={eventsByStage} />}
-          {activeView === "agents" && <AgentsView />}
-          {activeView === "pipelines" && <PipelinesView />}
+          <div hidden={activeView !== "workflows"} className="h-full">
+            <WorkflowsView eventsByStage={eventsByStage} />
+          </div>
+          <div hidden={activeView !== "agents"} className="h-full">
+            <AgentsView />
+          </div>
+          <div hidden={activeView !== "pipelines"} className="h-full">
+            <PipelinesView />
+          </div>
         </main>
       </div>
     </div>

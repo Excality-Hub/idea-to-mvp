@@ -12,7 +12,7 @@ describe("useRunPlan", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const { result } = renderHook(() => useRunPlan(true));
+    const { result } = renderHook(() => useRunPlan(true, 0));
 
     expect(result.current).toEqual(STAGE_ORDER);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -27,7 +27,7 @@ describe("useRunPlan", () => {
       }),
     );
 
-    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan(isIdle), {
+    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan(isIdle, 0), {
       initialProps: { isIdle: true },
     });
     expect(result.current).toEqual(STAGE_ORDER);
@@ -43,7 +43,7 @@ describe("useRunPlan", () => {
   it("falls back to the default backbone order when the plan endpoint returns an empty array", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) }));
 
-    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan(isIdle), {
+    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan(isIdle, 0), {
       initialProps: { isIdle: true },
     });
 
@@ -59,7 +59,7 @@ describe("useRunPlan", () => {
       vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(["create_repo", "analyst"]) }),
     );
 
-    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan(isIdle), {
+    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan(isIdle, 0), {
       initialProps: { isIdle: true },
     });
     rerender({ isIdle: false });
@@ -68,5 +68,31 @@ describe("useRunPlan", () => {
     rerender({ isIdle: true });
 
     expect(result.current).toEqual(STAGE_ORDER);
+  });
+
+  it("refetches the plan when runGeneration changes even though isIdle did not", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(["create_repo", "analyst"]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(["create_repo", "architect", "qa"]),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result, rerender } = renderHook(
+      ({ isIdle, runGeneration }) => useRunPlan(isIdle, runGeneration),
+      { initialProps: { isIdle: false, runGeneration: 0 } },
+    );
+
+    await waitFor(() => expect(result.current).toEqual(["create_repo", "analyst"]));
+
+    rerender({ isIdle: false, runGeneration: 1 });
+
+    await waitFor(() => expect(result.current).toEqual(["create_repo", "architect", "qa"]));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -24,16 +24,17 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
   const [workflowId, setWorkflowId] = useState("default");
   const [starting, setStarting] = useState(false);
   const [showStartForm, setShowStartForm] = useState(false);
+  const [runGeneration, setRunGeneration] = useState(0);
 
   const overallStatus = deriveOverallStatus(eventsByStage);
   const isIdle = overallStatus === "idle";
   const isTerminal = TERMINAL_STATUSES.has(overallStatus);
   const showForm = isIdle || (isTerminal && showStartForm);
 
-  const { workflows } = useWorkflows();
+  const { workflows, error: workflowsError } = useWorkflows();
   const { agents } = useAgents();
   const agentsById = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a])), [agents]);
-  const stageOrder = useRunPlan(isIdle);
+  const stageOrder = useRunPlan(isIdle, runGeneration);
   const labelFor = useMemo(() => (stage: StageName) => getStageLabel(stage, agentsById), [agentsById]);
 
   const nodes = useMemo(() => buildStageNodes(eventsByStage, stageOrder, labelFor), [eventsByStage, stageOrder, labelFor]);
@@ -49,6 +50,7 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ideaText, workflowId }),
       });
+      setRunGeneration((g) => g + 1);
     } finally {
       setStarting(false);
     }
@@ -98,6 +100,7 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
                 </option>
               ))}
             </select>
+            {workflowsError && <p className="text-sm text-destructive">{workflowsError}</p>}
           </div>
           <Button onClick={handleStart} disabled={!ideaText.trim() || starting}>
             {starting ? "Starting..." : "Start run"}

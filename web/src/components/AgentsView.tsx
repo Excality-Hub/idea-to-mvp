@@ -6,21 +6,28 @@ import { useAgents } from "@/hooks/useAgents";
 import type { AgentDefinition } from "@/types";
 
 export function AgentsView() {
-  const { agents, loading, refetch } = useAgents();
+  const { agents, loading, error, refetch } = useAgents();
   const [name, setName] = useState("");
   const [instructions, setInstructions] = useState("");
   const [repoAccess, setRepoAccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | undefined>(undefined);
   const [rowError, setRowError] = useState<{ id: string; message: string } | undefined>(undefined);
 
   async function handleCreate() {
+    setFormError(undefined);
     setSubmitting(true);
     try {
-      await fetch("/api/agents", {
+      const res = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, instructions, repoAccess }),
       });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        setFormError(body.error ?? "Could not create this agent");
+        return;
+      }
       setName("");
       setInstructions("");
       setRepoAccess(false);
@@ -86,6 +93,7 @@ export function AgentsView() {
             />
             Give this agent repo read access
           </label>
+          {formError && <p className="text-sm text-destructive">{formError}</p>}
           <Button
             onClick={handleCreate}
             disabled={!name.trim() || !instructions.trim() || submitting}
@@ -98,6 +106,8 @@ export function AgentsView() {
 
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : error ? (
+        <p className="text-sm text-destructive">{error}</p>
       ) : agents.length === 0 ? (
         <p className="text-sm text-muted-foreground">No agents yet.</p>
       ) : (
