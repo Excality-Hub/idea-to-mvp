@@ -40,11 +40,24 @@ function makeConfig(): RunControllerConfig {
     pushBranch: vi.fn().mockResolvedValue(undefined),
     diffAgainstBase: vi.fn().mockResolvedValue("diff --git a/server.js b/server.js"),
   };
+  const usage = {
+    inputTokens: 10,
+    outputTokens: 5,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    costUsd: 0.001,
+  };
   const agents = {
-    analyst: vi.fn().mockResolvedValue({ summary: "s", goals: [], keyFeatures: [], nonGoals: [], openQuestions: [] }),
-    architect: vi.fn().mockResolvedValue({ issueTitle: "t", issueBody: "b", branchName: "feature/x" }),
-    developer: vi.fn().mockResolvedValue({ prTitle: "t", prBody: "b" }),
-    qa: vi.fn().mockResolvedValue({ verdict: "pass", findings: [] }),
+    analyst: vi.fn().mockResolvedValue({
+      output: { summary: "s", goals: [], keyFeatures: [], nonGoals: [], openQuestions: [] },
+      usage,
+    }),
+    architect: vi.fn().mockResolvedValue({
+      output: { issueTitle: "t", issueBody: "b", branchName: "feature/x" },
+      usage,
+    }),
+    developer: vi.fn().mockResolvedValue({ output: { prTitle: "t", prBody: "b" }, usage }),
+    qa: vi.fn().mockResolvedValue({ output: { verdict: "pass", findings: [] }, usage }),
   };
   return {
     owner: "org",
@@ -94,7 +107,12 @@ describe("RunController", () => {
     let firstAttempt = true;
     vi.mocked(config.deps.agents.developer).mockImplementation(
       (_issueBody: string, _cwd: string, signal?: AbortSignal) => {
-        if (!firstAttempt) return Promise.resolve({ prTitle: "t", prBody: "b" });
+        if (!firstAttempt) {
+          return Promise.resolve({
+            output: { prTitle: "t", prBody: "b" },
+            usage: { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, costUsd: 0.001 },
+          });
+        }
         firstAttempt = false;
         return new Promise((_resolve, reject) => {
           if (signal?.aborted) {

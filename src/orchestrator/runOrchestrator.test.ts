@@ -4,6 +4,14 @@ import { RunEventBus } from "./events.js";
 import { runOrchestrator, type OrchestratorDeps, type OrchestratorParams } from "./runOrchestrator.js";
 import type { RunEvent } from "./types.js";
 
+const fakeUsage = {
+  inputTokens: 100,
+  outputTokens: 50,
+  cacheCreationInputTokens: 0,
+  cacheReadInputTokens: 0,
+  costUsd: 0.01,
+};
+
 const params: OrchestratorParams = {
   ideaText: "Build a todo app",
   owner: "org",
@@ -43,19 +51,28 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
   };
   const agents = {
     analyst: vi.fn().mockResolvedValue({
-      summary: "A todo app",
-      goals: [],
-      keyFeatures: [],
-      nonGoals: [],
-      openQuestions: [],
+      output: {
+        summary: "A todo app",
+        goals: [],
+        keyFeatures: [],
+        nonGoals: [],
+        openQuestions: [],
+      },
+      usage: fakeUsage,
     }),
     architect: vi.fn().mockResolvedValue({
-      issueTitle: "Add task tracking",
-      issueBody: "Implement it",
-      branchName: "feature/x",
+      output: {
+        issueTitle: "Add task tracking",
+        issueBody: "Implement it",
+        branchName: "feature/x",
+      },
+      usage: fakeUsage,
     }),
-    developer: vi.fn().mockResolvedValue({ prTitle: "Add task tracking", prBody: "Done" }),
-    qa: vi.fn().mockResolvedValue({ verdict: "pass", findings: [] }),
+    developer: vi.fn().mockResolvedValue({
+      output: { prTitle: "Add task tracking", prBody: "Done" },
+      usage: fakeUsage,
+    }),
+    qa: vi.fn().mockResolvedValue({ output: { verdict: "pass", findings: [] }, usage: fakeUsage }),
   };
 
   return {
@@ -143,6 +160,33 @@ describe("runOrchestrator", () => {
     expect(qaDone?.output).toEqual({ verdict: "pass", findings: [] });
   });
 
+  it("attaches each LLM stage's token usage to its done event and the tracing pack, without adding usage to non-LLM stages", async () => {
+    const deps = makeDeps();
+    const events: RunEvent[] = [];
+    deps.eventBus.onEvent((event) => events.push(event));
+
+    await runOrchestrator(params, deps);
+
+    const analystDone = events.find((e) => e.stage === "analyst" && e.status === "done");
+    const architectDone = events.find((e) => e.stage === "architect" && e.status === "done");
+    const developerDone = events.find((e) => e.stage === "developer" && e.status === "done");
+    const qaDone = events.find((e) => e.stage === "qa" && e.status === "done");
+    expect(analystDone?.usage).toEqual(fakeUsage);
+    expect(architectDone?.usage).toEqual(fakeUsage);
+    expect(developerDone?.usage).toEqual(fakeUsage);
+    expect(qaDone?.usage).toEqual(fakeUsage);
+
+    const createRepoDone = events.find((e) => e.stage === "create_repo" && e.status === "done");
+    expect(createRepoDone?.usage).toBeUndefined();
+
+    expect(deps.github.commitFile).toHaveBeenCalledTimes(1);
+    const [, , , content] = vi.mocked(deps.github.commitFile).mock.calls[0];
+    const analystSection = content.slice(content.indexOf("## analyst"), content.indexOf("## architect"));
+    expect(analystSection).toContain("**Tokens**");
+    const createRepoSection = content.slice(content.indexOf("## create_repo"), content.indexOf("## analyst"));
+    expect(createRepoSection).not.toContain("**Tokens**");
+  });
+
   it("commits a TRACING_PACK.md to the repo's main branch after a deployed run", async () => {
     const deps = makeDeps();
 
@@ -162,10 +206,13 @@ describe("runOrchestrator", () => {
   it("blocks before merging or deploying when QA reports a critical finding, and still commits a partial tracing pack", async () => {
     const deps = makeDeps();
     vi.mocked(deps.agents.qa).mockResolvedValue({
-      verdict: "block",
-      findings: [
-        { severity: "critical", category: "security", summary: "SQL injection", file: "server.js", line: 10 },
-      ],
+      output: {
+        verdict: "block",
+        findings: [
+          { severity: "critical", category: "security", summary: "SQL injection", file: "server.js", line: 10 },
+        ],
+      },
+      usage: fakeUsage,
     });
 
     const outcome = await runOrchestrator(params, deps);
@@ -221,10 +268,13 @@ describe("runOrchestrator", () => {
   it("proceeds through merge and deploy when QA findings are present but none are critical", async () => {
     const deps = makeDeps();
     vi.mocked(deps.agents.qa).mockResolvedValue({
-      verdict: "pass",
-      findings: [
-        { severity: "major", category: "correctness", summary: "off-by-one in pagination", file: "server.js", line: 22 },
-      ],
+      output: {
+        verdict: "pass",
+        findings: [
+          { severity: "major", category: "correctness", summary: "off-by-one in pagination", file: "server.js", line: 22 },
+        ],
+      },
+      usage: fakeUsage,
     });
 
     const outcome = await runOrchestrator(params, deps);
@@ -315,7 +365,7 @@ describe("runOrchestrator", () => {
             return;
           }
           signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
-          resolve({ verdict: "pass", findings: [] });
+          resolve({ output: { verdict: "pass", findings: [] }, usage: fakeUsage });
         }),
     );
     let developerController: AbortController | undefined;

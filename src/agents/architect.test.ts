@@ -51,15 +51,26 @@ describe("buildArchitectPrompt", () => {
 });
 
 describe("runArchitectAgent", () => {
-  it("returns the parsed architect output from the claude -p result", async () => {
+  it("returns the parsed architect output and token usage from the claude -p result", async () => {
     const rawOutput = JSON.stringify({
       result: `Plan below.\n\`\`\`json\n${JSON.stringify(fakeArchitectJson)}\n\`\`\``,
+      total_cost_usd: 0.02,
+      usage: { input_tokens: 200, output_tokens: 80, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     });
     vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
 
     const result = await runArchitectAgent(analystOutput, "/tmp/work", "render");
 
-    expect(result).toEqual(fakeArchitectJson);
+    expect(result).toEqual({
+      output: fakeArchitectJson,
+      usage: {
+        inputTokens: 200,
+        outputTokens: 80,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        costUsd: 0.02,
+      },
+    });
     expect(runClaudeAgent).toHaveBeenCalledWith({
       prompt: expect.stringContaining("A todo app"),
       cwd: "/tmp/work",

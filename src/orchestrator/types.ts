@@ -1,3 +1,5 @@
+import type { AgentUsage } from "../claudeAgent.js";
+
 export type StageName =
   | "create_repo"
   | "analyst"
@@ -20,6 +22,7 @@ export interface RunEvent {
   timestamp: string;
   input?: unknown;
   output?: unknown;
+  usage?: AgentUsage;
 }
 
 export const ABORTABLE_STAGES: StageName[] = ["analyst", "architect", "developer", "qa"];

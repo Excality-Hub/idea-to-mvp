@@ -32,4 +32,34 @@ describe("StageDetailSheet", () => {
     expect(screen.queryByText("Input")).not.toBeInTheDocument();
     expect(screen.queryByText("Output")).not.toBeInTheDocument();
   });
+
+  it("renders token usage and cost when present", () => {
+    const events: RunEvent[] = [
+      {
+        ...baseEvent,
+        usage: {
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheCreationInputTokens: 10,
+          cacheReadInputTokens: 20,
+          costUsd: 0.0123,
+        },
+      },
+    ];
+
+    render(<StageDetailSheet label="Analyst" status="done" events={events} open onOpenChange={() => {}} />);
+
+    expect(screen.getByText("Tokens")).toBeInTheDocument();
+    expect(screen.getByText(/100 in/)).toBeInTheDocument();
+    expect(screen.getByText(/50 out/)).toBeInTheDocument();
+    expect(screen.getByText(/\$0\.0123/)).toBeInTheDocument();
+  });
+
+  it("omits the Tokens section when usage is not present", () => {
+    const events: RunEvent[] = [baseEvent];
+
+    render(<StageDetailSheet label="Analyst" status="done" events={events} open onOpenChange={() => {}} />);
+
+    expect(screen.queryByText("Tokens")).not.toBeInTheDocument();
+  });
 });

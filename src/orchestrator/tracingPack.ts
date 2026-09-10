@@ -1,3 +1,4 @@
+import type { AgentUsage } from "../claudeAgent.js";
 import type { StageName, StageStatus } from "./types.js";
 
 export interface TracingPackEntry {
@@ -5,6 +6,7 @@ export interface TracingPackEntry {
   status: StageStatus;
   input?: unknown;
   output?: unknown;
+  usage?: AgentUsage;
 }
 
 function renderField(label: string, value: unknown): string {
@@ -14,8 +16,18 @@ function renderField(label: string, value: unknown): string {
   return `**${label}**\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
 }
 
-function renderEntry(entry: TracingPackEntry): string {
+function renderUsage(usage: AgentUsage): string {
   return [
+    "**Tokens**",
+    "",
+    `input: ${usage.inputTokens}, output: ${usage.outputTokens}, ` +
+      `cache read: ${usage.cacheReadInputTokens}, cache write: ${usage.cacheCreationInputTokens}, ` +
+      `cost: $${usage.costUsd.toFixed(4)}`,
+  ].join("\n");
+}
+
+function renderEntry(entry: TracingPackEntry): string {
+  const parts = [
     `## ${entry.stage}`,
     "",
     `Status: \`${entry.status}\``,
@@ -23,7 +35,11 @@ function renderEntry(entry: TracingPackEntry): string {
     renderField("Input", entry.input),
     "",
     renderField("Output", entry.output),
-  ].join("\n");
+  ];
+  if (entry.usage) {
+    parts.push("", renderUsage(entry.usage));
+  }
+  return parts.join("\n");
 }
 
 export function formatTracingPackMarkdown(entries: TracingPackEntry[], outcome: string): string {

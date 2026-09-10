@@ -16,6 +16,14 @@ export type StageName =
 
 export type StageStatus = "running" | "done" | "failed" | "blocked" | "stopped";
 
+export interface AgentUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  costUsd: number;
+}
+
 export interface RunEvent {
   stage: StageName;
   status: StageStatus;
@@ -23,6 +31,7 @@ export interface RunEvent {
   timestamp: string;
   input?: unknown;
   output?: unknown;
+  usage?: AgentUsage;
 }
 
 export const STAGE_ORDER: StageName[] = [

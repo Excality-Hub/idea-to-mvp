@@ -25,15 +25,26 @@ describe("buildAnalystPrompt", () => {
 });
 
 describe("runAnalystAgent", () => {
-  it("returns the parsed analyst output from the claude -p result", async () => {
+  it("returns the parsed analyst output and token usage from the claude -p result", async () => {
     const rawOutput = JSON.stringify({
       result: `Some explanation.\n\`\`\`json\n${JSON.stringify(fakeAnalystJson)}\n\`\`\``,
+      total_cost_usd: 0.01,
+      usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     });
     vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
 
     const result = await runAnalystAgent("Build a todo app", "/tmp/work");
 
-    expect(result).toEqual(fakeAnalystJson);
+    expect(result).toEqual({
+      output: fakeAnalystJson,
+      usage: {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        costUsd: 0.01,
+      },
+    });
     expect(runClaudeAgent).toHaveBeenCalledWith({
       prompt: expect.stringContaining("Build a todo app"),
       cwd: "/tmp/work",

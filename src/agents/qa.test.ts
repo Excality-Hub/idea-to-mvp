@@ -24,15 +24,26 @@ describe("buildQaPrompt", () => {
 });
 
 describe("runQaAgent", () => {
-  it("runs with read-only tools and returns the parsed verdict and findings", async () => {
+  it("runs with read-only tools and returns the parsed verdict, findings, and token usage", async () => {
     const rawOutput = JSON.stringify({
       result: `Reviewed.\n\`\`\`json\n${JSON.stringify(fakeQaJson)}\n\`\`\``,
+      total_cost_usd: 0.03,
+      usage: { input_tokens: 300, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     });
     vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
 
     const result = await runQaAgent("diff --git a/server.js b/server.js", "/tmp/work");
 
-    expect(result).toEqual(fakeQaJson);
+    expect(result).toEqual({
+      output: fakeQaJson,
+      usage: {
+        inputTokens: 300,
+        outputTokens: 100,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        costUsd: 0.03,
+      },
+    });
     expect(runClaudeAgent).toHaveBeenCalledWith({
       prompt: expect.stringContaining("diff --git a/server.js b/server.js"),
       cwd: "/tmp/work",

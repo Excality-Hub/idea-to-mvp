@@ -78,6 +78,19 @@ export function StageDetailSheet({ label, status, events, open, onOpenChange }: 
                       </pre>
                     </div>
                   )}
+                  {event.usage !== undefined && (
+                    <div className="mt-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Tokens
+                      </p>
+                      <p className="mt-1 text-foreground">
+                        {event.usage.inputTokens.toLocaleString()} in &middot;{" "}
+                        {event.usage.outputTokens.toLocaleString()} out &middot;{" "}
+                        {event.usage.cacheReadInputTokens.toLocaleString()} cache-read &middot; $
+                        {event.usage.costUsd.toFixed(4)}
+                      </p>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
