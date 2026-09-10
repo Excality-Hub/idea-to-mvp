@@ -15,8 +15,10 @@ import type {
 import type { DeployClient } from "../deploy/types.js";
 import { formatTracingPackMarkdown, type TracingPackEntry } from "./tracingPack.js";
 import { RunEventBus } from "./events.js";
-import { ABORTABLE_STAGES, type RunEvent, type StageName } from "./types.js";
+import { ABORTABLE_STAGES, type ResolvedWorkflow, type RunEvent, type StageName } from "./types.js";
 import { AgentStoppedError, type AgentUsage } from "../claudeAgent.js";
+import type { AgentDefinition } from "../agents/types.js";
+import type { runCustomAgent } from "../agents/custom.js";
 
 export interface OrchestratorParams {
   ideaText: string;
@@ -25,6 +27,7 @@ export interface OrchestratorParams {
   starterDir: string;
   workDir: string;
   githubToken: string;
+  resolvedWorkflow: ResolvedWorkflow;
 }
 
 export interface OrchestratorDeps {
@@ -43,6 +46,7 @@ export interface OrchestratorDeps {
     architect: typeof runArchitectAgent;
     developer: typeof runDeveloperAgent;
     qa: typeof runQaAgent;
+    custom: typeof runCustomAgent;
   };
   readStarterFiles: typeof ReadStarterFiles;
 }
@@ -107,7 +111,7 @@ interface StageStep {
   ): Promise<void>;
 }
 
-const STAGE_STEPS: StageStep[] = [
+const BACKBONE_STEPS: StageStep[] = [
   {
     name: "create_repo",
     abortable: ABORTABLE_STAGES.includes("create_repo"),
@@ -319,6 +323,48 @@ const STAGE_STEPS: StageStep[] = [
   },
 ];
 
+function renderContextSoFar(ideaText: string, entries: TracingPackEntry[]): string {
+  const sections = entries.map((entry) => `## ${entry.stage}\n${JSON.stringify(entry.output ?? {}, null, 2)}`);
+  return [
+    "IDEA:",
+    ideaText,
+    "",
+    "OUTPUT SO FAR FROM EARLIER PIPELINE STAGES:",
+    sections.length > 0 ? sections.join("\n\n") : "(none yet)",
+  ].join("\n");
+}
+
+function buildCustomStep(agent: AgentDefinition): StageStep {
+  const stageName = `custom:${agent.id}` as StageName;
+  return {
+    name: stageName,
+    abortable: true,
+    async run(ctx, params, deps, signal) {
+      const contextText = renderContextSoFar(params.ideaText, ctx.tracingEntries);
+      ctx.pendingInput = { agentName: agent.name, instructions: agent.instructions, repoAccess: agent.repoAccess };
+      deps.eventBus.emit(stageEvent(stageName, "running", `Running ${agent.name}`, { input: ctx.pendingInput }));
+      const { output, usage } = await deps.agents.custom(agent, contextText, params.workDir, signal);
+      deps.eventBus.emit(stageEvent(stageName, "done", output.text.slice(0, 200), { output, usage }));
+      ctx.tracingEntries.push({ stage: stageName, status: "done", input: ctx.pendingInput, output, usage });
+    },
+  };
+}
+
+export function buildStageSteps(resolvedWorkflow: ResolvedWorkflow): StageStep[] {
+  const steps: StageStep[] = [];
+  for (const step of BACKBONE_STEPS) {
+    steps.push(step);
+    if (step.name === "analyst") {
+      steps.push(...resolvedWorkflow.afterAnalyst.map(buildCustomStep));
+    } else if (step.name === "architect") {
+      steps.push(...resolvedWorkflow.afterArchitect.map(buildCustomStep));
+    } else if (step.name === "qa") {
+      steps.push(...resolvedWorkflow.afterQa.map(buildCustomStep));
+    }
+  }
+  return steps;
+}
+
 export async function runOrchestrator(
   params: OrchestratorParams,
   deps: OrchestratorDeps,
@@ -327,6 +373,7 @@ export async function runOrchestrator(
 ): Promise<RunOutcome> {
   const ctx: PipelineContext = resumeState?.ctx ?? { tracingEntries: [] };
   const startIndex = resumeState?.stageIndex ?? 0;
+  const stageSteps = buildStageSteps(params.resolvedWorkflow);
 
   async function commitTracingPack(outcome: string): Promise<void> {
     if (!ctx.repo) return;
@@ -353,9 +400,9 @@ export async function runOrchestrator(
     }
   }
 
-  let currentStage: StageName = STAGE_STEPS[startIndex]?.name ?? "create_repo";
-  for (let i = startIndex; i < STAGE_STEPS.length; i++) {
-    const step = STAGE_STEPS[i];
+  let currentStage: StageName = stageSteps[startIndex]?.name ?? "create_repo";
+  for (let i = startIndex; i < stageSteps.length; i++) {
+    const step = stageSteps[i];
     currentStage = step.name;
     if (step.guard?.(ctx)) {
       deps.eventBus.emit(
