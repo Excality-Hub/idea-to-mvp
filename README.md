@@ -48,6 +48,16 @@ design.
    state linking to the PR (QA found a critical issue). From there,
    "Start a new run" submits another idea in the same session.
 
+Custom agents and workflows you create are persisted to `data/agents.json`
+and `data/workflows.json` (gitignored) via `POST /api/agents` and
+`POST /api/workflows` — see `docs/superpowers/specs/2026-09-10-configurable-agents-design.md`.
+There is no dashboard UI for authoring them yet; use the API directly, e.g.:
+
+```bash
+curl -X POST localhost:3000/api/agents -H 'Content-Type: application/json' \
+  -d '{"name":"Security Reviewer","instructions":"Look for auth bypass and injection issues.","repoAccess":true}'
+```
+
 ### Iterating on the dashboard UI
 
 The dashboard is a React + TypeScript + shadcn/ui app in `web/`. For a
