@@ -6,7 +6,7 @@ import { StageNode } from "@/components/StageNode";
 import { StageDetailSheet } from "@/components/StageDetailSheet";
 import { deriveOverallStatus, deriveStageStatus, type EventsByStage } from "@/lib/runEvents";
 import { buildStageEdges, buildStageNodes } from "@/lib/workflowGraph";
-import { getStageLabelSafe, type StageName } from "@/types";
+import { STAGE_LABELS, type StageName } from "@/types";
 
 interface WorkflowsViewProps {
   eventsByStage: EventsByStage;
@@ -101,7 +101,7 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
         </div>
       )}
       <StageDetailSheet
-        label={selectedStage ? getStageLabelSafe(selectedStage) : undefined}
+        label={selectedStage ? STAGE_LABELS[selectedStage as Exclude<StageName, `custom:${string}`>] : undefined}
         status={deriveStageStatus(selectedEvents)}
         events={selectedEvents}
         open={selectedStage !== null && !showForm}

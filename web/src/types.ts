@@ -75,13 +75,6 @@ export function isAbortableStage(stage: StageName): boolean {
   return isCustomStage(stage) || (ABORTABLE_STAGES as StageName[]).includes(stage);
 }
 
-export function getStageLabelSafe(stage: StageName): string {
-  if (isCustomStage(stage)) {
-    return stage.slice(7); // Remove "custom:" prefix
-  }
-  return STAGE_LABELS[stage as Exclude<StageName, `custom:${string}`>];
-}
-
 export interface AgentDefinition {
   id: string;
   name: string;
