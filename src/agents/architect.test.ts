@@ -43,6 +43,11 @@ describe("buildArchitectPrompt", () => {
     expect(prompt).not.toContain("Express app");
     expect(prompt).toContain("only src/index.js is uploaded");
   });
+
+  it("instructs the Cloudflare layout to keep a root health-check route", () => {
+    const prompt = buildArchitectPrompt(analystOutput, "cloudflare");
+    expect(prompt).toContain("GET /");
+  });
 });
 
 describe("runArchitectAgent", () => {

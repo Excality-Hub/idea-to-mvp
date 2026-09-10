@@ -17,6 +17,7 @@ const LAYOUT_BLURBS: Record<StarterLayout, string[]> = {
     "- src/index.js (a Workers `fetch(request)` handler - this exact file is what gets deployed)",
     "- README.md",
     "IMPORTANT: only src/index.js is uploaded when deploying - keep the entire app in this one file. Do not rename, move, or split it into multiple files/modules.",
+    "IMPORTANT: always keep a GET / route that returns a simple 200 status response, even if the idea does not ask for one. This is used to verify the deploy is live and reachable from a browser - the idea's own routes should be added alongside it, not in place of it.",
   ],
 };
 
