@@ -194,6 +194,44 @@ describe("RunController", () => {
     expect(() => controller.start("Build a todo app", "nope")).toThrow("Unknown workflow: nope");
   });
 
+  it("throws when a workflow references an unknown agent id", () => {
+    const config = makeConfig();
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      {
+        id: "broken",
+        name: "Broken",
+        slots: { afterAnalyst: ["missing-agent"], afterArchitect: [], afterQa: [] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    const controller = new RunController(config);
+
+    expect(() => controller.start("Build a todo app", "broken")).toThrow("Unknown agent: missing-agent");
+  });
+
+  it("does not swap the event bus when a second start() fails validation after a prior run completed", async () => {
+    const config = makeConfig();
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      {
+        id: "broken",
+        name: "Broken",
+        slots: { afterAnalyst: ["missing-agent"], afterArchitect: [], afterQa: [] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app");
+    await controller.getRunPromise();
+    expect(controller.getStatus()).toBe("done");
+
+    const busBeforeSecondStart = controller.eventBus;
+    expect(() => controller.start("Build a todo app", "broken")).toThrow("Unknown agent: missing-agent");
+    expect(controller.eventBus).toBe(busBeforeSecondStart);
+  });
+
   it("exposes the resolved stage order via getPlan()", async () => {
     const controller = new RunController(makeConfig());
 

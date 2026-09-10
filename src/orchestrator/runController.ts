@@ -60,10 +60,6 @@ export class RunController {
     if (this.status === "running" || this.status === "stopped") {
       throw new Error("A run is already active");
     }
-    if (this.status === "done") {
-      this.eventBus = new RunEventBus();
-      this.busReplacedEmitter.emit("replaced");
-    }
     const workflow = this.config.workflowStore.get(workflowId);
     if (!workflow) {
       throw new Error(`Unknown workflow: ${workflowId}`);
@@ -79,6 +75,10 @@ export class RunController {
       afterArchitect: resolveAgents(workflow.slots.afterArchitect),
       afterQa: resolveAgents(workflow.slots.afterQa),
     };
+    if (this.status === "done") {
+      this.eventBus = new RunEventBus();
+      this.busReplacedEmitter.emit("replaced");
+    }
     this.plan = [...buildStageSteps(resolvedWorkflow).map((step) => step.name), "tracing_pack"];
     const params: OrchestratorParams = {
       ideaText,
