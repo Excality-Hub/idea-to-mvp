@@ -4,9 +4,12 @@ import "@xyflow/react/dist/style.css";
 import { Button } from "@/components/ui/button";
 import { StageNode } from "@/components/StageNode";
 import { StageDetailSheet } from "@/components/StageDetailSheet";
+import { useAgents } from "@/hooks/useAgents";
+import { useRunPlan } from "@/hooks/useRunPlan";
+import { useWorkflows } from "@/hooks/useWorkflows";
 import { deriveOverallStatus, deriveStageStatus, type EventsByStage } from "@/lib/runEvents";
-import { buildStageEdges, buildStageNodes } from "@/lib/workflowGraph";
-import { STAGE_LABELS, STAGE_ORDER, type StageName } from "@/types";
+import { buildStageEdges, buildStageNodes, getStageLabel } from "@/lib/workflowGraph";
+import type { StageName } from "@/types";
 
 interface WorkflowsViewProps {
   eventsByStage: EventsByStage;
@@ -18,18 +21,23 @@ const TERMINAL_STATUSES = new Set(["deployed", "blocked", "failed"]);
 export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
   const [selectedStage, setSelectedStage] = useState<StageName | null>(null);
   const [ideaText, setIdeaText] = useState("");
+  const [workflowId, setWorkflowId] = useState("default");
   const [starting, setStarting] = useState(false);
   const [showStartForm, setShowStartForm] = useState(false);
 
-  const nodes = useMemo(
-    () => buildStageNodes(eventsByStage, STAGE_ORDER, (stage) => STAGE_LABELS[stage as Exclude<StageName, `custom:${string}`>]),
-    [eventsByStage],
-  );
-  const edges = useMemo(() => buildStageEdges(eventsByStage, STAGE_ORDER), [eventsByStage]);
   const overallStatus = deriveOverallStatus(eventsByStage);
   const isIdle = overallStatus === "idle";
   const isTerminal = TERMINAL_STATUSES.has(overallStatus);
   const showForm = isIdle || (isTerminal && showStartForm);
+
+  const { workflows } = useWorkflows();
+  const { agents } = useAgents();
+  const agentsById = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a])), [agents]);
+  const stageOrder = useRunPlan(isIdle);
+  const labelFor = useMemo(() => (stage: StageName) => getStageLabel(stage, agentsById), [agentsById]);
+
+  const nodes = useMemo(() => buildStageNodes(eventsByStage, stageOrder, labelFor), [eventsByStage, stageOrder, labelFor]);
+  const edges = useMemo(() => buildStageEdges(eventsByStage, stageOrder), [eventsByStage, stageOrder]);
 
   const selectedEvents = selectedStage ? (eventsByStage[selectedStage] ?? []) : [];
 
@@ -39,7 +47,7 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
       await fetch("/api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ideaText }),
+        body: JSON.stringify({ ideaText, workflowId }),
       });
     } finally {
       setStarting(false);
@@ -74,6 +82,23 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
             value={ideaText}
             onChange={(event) => setIdeaText(event.target.value)}
           />
+          <div className="flex w-full max-w-lg flex-col gap-1">
+            <label htmlFor="pipeline-picker" className="text-sm font-medium text-foreground">
+              Pipeline
+            </label>
+            <select
+              id="pipeline-picker"
+              className="rounded-lg border border-border bg-background p-2 text-sm"
+              value={workflowId}
+              onChange={(event) => setWorkflowId(event.target.value)}
+            >
+              {workflows.map((workflow) => (
+                <option key={workflow.id} value={workflow.id}>
+                  {workflow.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <Button onClick={handleStart} disabled={!ideaText.trim() || starting}>
             {starting ? "Starting..." : "Start run"}
           </Button>
@@ -87,11 +112,8 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
               nodeTypes={nodeTypes}
               onNodeClick={(_, node) => setSelectedStage(node.data.stage)}
               fitView
-              // All 11 stage nodes span (11 - 1) * STAGE_NODE_X_SPACING + STAGE_NODE_WIDTH = 3040px at
-              // zoom 1. React Flow's default minZoom (0.5) can't zoom out far enough for fitView to fit
-              // that span into a typical ~900-1000px canvas pane (would need ~0.33), so it clamps at 0.5
-              // and only a subset of stages are visible on first render. Lowering minZoom lets fitView
-              // zoom out as far as the math requires, even on a fairly narrow window.
+              // Node count varies with the resolved plan; minZoom is lowered so fitView can
+              // always zoom out far enough to frame every stage, however many there are.
               minZoom={0.1}
               nodesDraggable={false}
               nodesConnectable={false}
@@ -104,7 +126,7 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
         </div>
       )}
       <StageDetailSheet
-        label={selectedStage ? STAGE_LABELS[selectedStage as Exclude<StageName, `custom:${string}`>] : undefined}
+        label={selectedStage ? labelFor(selectedStage) : undefined}
         status={deriveStageStatus(selectedEvents)}
         events={selectedEvents}
         open={selectedStage !== null && !showForm}
