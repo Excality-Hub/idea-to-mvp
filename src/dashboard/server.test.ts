@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { RunEventBus } from "../orchestrator/events.js";
 import type { RunEvent } from "../orchestrator/types.js";
 import { createEventsHandler, createRunHandlers } from "./server.js";
+import type { AgentDefinition } from "../agents/types.js";
+import type { AgentStore } from "../agents/agentStore.js";
+import type { WorkflowDefinition } from "../orchestrator/types.js";
+import type { WorkflowStore } from "../orchestrator/workflowStore.js";
+import { createAgentHandlers, createWorkflowHandlers } from "./server.js";
 
 const sampleEvent: RunEvent = {
   stage: "analyst",
@@ -146,6 +151,175 @@ describe("createRunHandlers", () => {
     resume({} as never, res as never, (() => {}) as never);
 
     expect(controller.resume).toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+});
+
+function makeAgentStore(agents: AgentDefinition[] = []): AgentStore {
+  return {
+    list: vi.fn(() => agents),
+    get: (id) => agents.find((a) => a.id === id),
+    create: vi.fn((item) => agents.push(item)),
+    delete: vi.fn(),
+  };
+}
+
+function makeWorkflowStore(workflows: WorkflowDefinition[] = []): WorkflowStore {
+  return {
+    list: vi.fn(() => workflows),
+    get: (id) => workflows.find((w) => w.id === id),
+    create: vi.fn((item) => workflows.push(item)),
+    delete: vi.fn(),
+  };
+}
+
+describe("createAgentHandlers", () => {
+  it("lists agents", () => {
+    const agentStore = makeAgentStore([
+      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const { list } = createAgentHandlers(agentStore, makeWorkflowStore());
+    const res = makeFakeRes();
+
+    list({} as never, res as never, (() => {}) as never);
+
+    expect(res.json).toHaveBeenCalledWith(agentStore.list());
+  });
+
+  it("creates an agent from a valid body and returns 201", () => {
+    const agentStore = makeAgentStore();
+    const { create } = createAgentHandlers(agentStore, makeWorkflowStore());
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "Security Reviewer", instructions: "check for bugs", repoAccess: true } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(agentStore.create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Security Reviewer", instructions: "check for bugs", repoAccess: true }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("returns 400 when the create body is invalid", () => {
+    const { create } = createAgentHandlers(makeAgentStore(), makeWorkflowStore());
+    const res = makeFakeRes();
+
+    create({ body: { name: "" } } as never, res as never, (() => {}) as never);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("deletes an agent not referenced by any workflow", () => {
+    const agentStore = makeAgentStore([
+      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const { remove } = createAgentHandlers(agentStore, makeWorkflowStore([]));
+    const res = makeFakeRes();
+
+    remove({ params: { id: "a" } } as never, res as never, (() => {}) as never);
+
+    expect(agentStore.delete).toHaveBeenCalledWith("a");
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it("returns 409 when deleting an agent referenced by a workflow", () => {
+    const agentStore = makeAgentStore([
+      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const workflowStore = makeWorkflowStore([
+      { id: "w1", name: "W1", slots: { afterAnalyst: ["a"], afterArchitect: [], afterQa: [] }, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const { remove } = createAgentHandlers(agentStore, workflowStore);
+    const res = makeFakeRes();
+
+    remove({ params: { id: "a" } } as never, res as never, (() => {}) as never);
+
+    expect(agentStore.delete).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+  });
+});
+
+describe("createWorkflowHandlers", () => {
+  it("lists workflows", () => {
+    const workflowStore = makeWorkflowStore([
+      { id: "default", name: "Default", slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] }, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const { list } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    list({} as never, res as never, (() => {}) as never);
+
+    expect(res.json).toHaveBeenCalledWith(workflowStore.list());
+  });
+
+  it("creates a workflow referencing only existing agents, and returns 201", () => {
+    const agentStore = makeAgentStore([
+      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const workflowStore = makeWorkflowStore();
+    const { create } = createWorkflowHandlers(workflowStore, agentStore);
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "With A", slots: { afterAnalyst: ["a"], afterArchitect: [], afterQa: [] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "With A", slots: { afterAnalyst: ["a"], afterArchitect: [], afterQa: [] } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("returns 400 when a slot references an unknown agent id", () => {
+    const { create } = createWorkflowHandlers(makeWorkflowStore(), makeAgentStore());
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "Bad", slots: { afterAnalyst: ["missing"], afterArchitect: [], afterQa: [] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("rejects deleting the default workflow with 400", () => {
+    const workflowStore = makeWorkflowStore();
+    const { remove } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    remove({ params: { id: "default" } } as never, res as never, (() => {}) as never);
+
+    expect(workflowStore.delete).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("deletes a non-default workflow and returns 204", () => {
+    const workflowStore = makeWorkflowStore();
+    const { remove } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    remove({ params: { id: "with-review" } } as never, res as never, (() => {}) as never);
+
+    expect(workflowStore.delete).toHaveBeenCalledWith("with-review");
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+});
+
+describe("createRunHandlers with a workflowId", () => {
+  it("starts a run with the given workflowId when provided", () => {
+    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn() };
+    const { start } = createRunHandlers(controller);
+    const res = makeFakeRes();
+
+    start({ body: { ideaText: "Build a todo app", workflowId: "with-review" } } as never, res as never, (() => {}) as never);
+
+    expect(controller.start).toHaveBeenCalledWith("Build a todo app", "with-review");
     expect(res.status).toHaveBeenCalledWith(204);
   });
 });
