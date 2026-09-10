@@ -20,8 +20,10 @@ describe("StageDetailSheet", () => {
 
     expect(screen.getByText("Input")).toBeInTheDocument();
     expect(screen.getByText("Output")).toBeInTheDocument();
-    expect(screen.getByText(/"ideaText": "Build a todo app"/)).toBeInTheDocument();
-    expect(screen.getByText(/"summary": "A todo app"/)).toBeInTheDocument();
+    expect(screen.getByText("ideaText:")).toBeInTheDocument();
+    expect(screen.getByText('"Build a todo app"')).toBeInTheDocument();
+    expect(screen.getByText("summary:")).toBeInTheDocument();
+    expect(screen.getByText('"A todo app"')).toBeInTheDocument();
   });
 
   it("omits input/output sections when neither is present", () => {
