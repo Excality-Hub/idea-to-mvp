@@ -428,4 +428,73 @@ describe("runOrchestrator", () => {
       expect.anything(),
     );
   });
+
+  it("clones the repo before running a repoAccess custom agent placed before the developer stage, and only once even though developer would otherwise clone too", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.custom).mockResolvedValue({
+      output: { text: "Looked at the repo." },
+      usage: fakeUsage,
+    });
+    const workflowParams: OrchestratorParams = {
+      ...params,
+      resolvedWorkflow: {
+        afterAnalyst: [
+          {
+            id: "repo-agent",
+            name: "Repo Reader",
+            instructions: "Read the repo.",
+            repoAccess: true,
+            createdAt: "2026-09-10T00:00:00.000Z",
+          },
+        ],
+        afterArchitect: [],
+        afterQa: [],
+      },
+    };
+
+    const outcome = await runOrchestrator(workflowParams, deps);
+
+    expect(outcome.status).toBe("deployed");
+    expect(deps.git.cloneRepo).toHaveBeenCalledTimes(1);
+    const cloneOrder = vi.mocked(deps.git.cloneRepo).mock.invocationCallOrder[0];
+    const customOrder = vi.mocked(deps.agents.custom).mock.invocationCallOrder[0];
+    expect(cloneOrder).toBeLessThan(customOrder);
+  });
+
+  it("does not clone the repo for a custom agent without repoAccess placed before the developer stage", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.custom).mockResolvedValue({
+      output: { text: "Just thinking out loud." },
+      usage: fakeUsage,
+    });
+    const workflowParams: OrchestratorParams = {
+      ...params,
+      resolvedWorkflow: {
+        afterAnalyst: [
+          {
+            id: "text-agent",
+            name: "Brainstormer",
+            instructions: "Suggest ideas.",
+            repoAccess: false,
+            createdAt: "2026-09-10T00:00:00.000Z",
+          },
+        ],
+        afterArchitect: [],
+        afterQa: [],
+      },
+    };
+    let cloneCallsAtCustomDone: number | undefined;
+    deps.eventBus.onEvent((event) => {
+      if (event.stage === "custom:text-agent" && event.status === "done") {
+        cloneCallsAtCustomDone = vi.mocked(deps.git.cloneRepo).mock.calls.length;
+      }
+    });
+
+    const outcome = await runOrchestrator(workflowParams, deps);
+
+    expect(outcome.status).toBe("deployed");
+    expect(cloneCallsAtCustomDone).toBe(0);
+    // developer's own clone-once guard still fires later in the same run.
+    expect(deps.git.cloneRepo).toHaveBeenCalledTimes(1);
+  });
 });

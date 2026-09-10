@@ -142,6 +142,10 @@ export function createWorkflowHandlers(
       res.status(400).json({ error: `Unknown agent id: ${unknownId}` });
       return;
     }
+    if (new Set(allIds).size !== allIds.length) {
+      res.status(400).json({ error: "An agent may appear at most once across a workflow's slots" });
+      return;
+    }
     const workflow: WorkflowDefinition = { id: randomUUID(), ...parsed.data, createdAt: new Date().toISOString() };
     workflowStore.create(workflow);
     res.status(201).json(workflow);

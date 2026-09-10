@@ -288,6 +288,24 @@ describe("createWorkflowHandlers", () => {
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
+  it("returns 400 when the same agent id appears in more than one slot", () => {
+    const agentStore = makeAgentStore([
+      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const workflowStore = makeWorkflowStore();
+    const { create } = createWorkflowHandlers(workflowStore, agentStore);
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "Dup", slots: { afterAnalyst: ["a"], afterArchitect: ["a"], afterQa: [] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.create).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
   it("rejects deleting the default workflow with 400", () => {
     const workflowStore = makeWorkflowStore();
     const { remove } = createWorkflowHandlers(workflowStore, makeAgentStore());

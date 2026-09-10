@@ -343,6 +343,10 @@ function buildCustomStep(agent: AgentDefinition): StageStep {
       const contextText = renderContextSoFar(params.ideaText, ctx.tracingEntries);
       ctx.pendingInput = { agentName: agent.name, instructions: agent.instructions, repoAccess: agent.repoAccess };
       deps.eventBus.emit(stageEvent(stageName, "running", `Running ${agent.name}`, { input: ctx.pendingInput }));
+      if (agent.repoAccess && !ctx.repoCloned) {
+        await deps.git.cloneRepo(ctx.repo!.cloneUrl, params.workDir, params.githubToken);
+        ctx.repoCloned = true;
+      }
       const { output, usage } = await deps.agents.custom(agent, contextText, params.workDir, signal);
       deps.eventBus.emit(stageEvent(stageName, "done", output.text.slice(0, 200), { output, usage }));
       ctx.tracingEntries.push({ stage: stageName, status: "done", input: ctx.pendingInput, output, usage });
