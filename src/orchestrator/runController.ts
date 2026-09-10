@@ -4,12 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RunEventBus } from "./events.js";
 import {
+  buildStageSteps,
   runOrchestrator,
   type OrchestratorDeps,
   type OrchestratorParams,
   type ResumeState,
   type RunOutcome,
 } from "./runOrchestrator.js";
+import type { AgentDefinition } from "../agents/types.js";
+import type { AgentStore } from "../agents/agentStore.js";
+import { DEFAULT_WORKFLOW_ID, type WorkflowStore } from "./workflowStore.js";
+import type { ResolvedWorkflow, StageName } from "./types.js";
 
 export type RunControllerStatus = "idle" | "running" | "stopped" | "done";
 
@@ -17,6 +22,8 @@ export interface RunControllerConfig {
   owner: string;
   starterDir: string;
   githubToken: string;
+  agentStore: AgentStore;
+  workflowStore: WorkflowStore;
   deps: Omit<OrchestratorDeps, "eventBus">;
 }
 
@@ -28,6 +35,7 @@ export class RunController {
   private snapshot: { params: OrchestratorParams; resumeState: ResumeState } | undefined;
   private runPromise: Promise<RunOutcome> | undefined;
   private busReplacedEmitter = new EventEmitter();
+  private plan: StageName[] | undefined;
 
   constructor(private config: RunControllerConfig) {}
 
@@ -39,12 +47,16 @@ export class RunController {
     return this.runPromise;
   }
 
+  getPlan(): StageName[] | undefined {
+    return this.plan;
+  }
+
   onBusReplaced(listener: () => void): () => void {
     this.busReplacedEmitter.on("replaced", listener);
     return () => this.busReplacedEmitter.off("replaced", listener);
   }
 
-  start(ideaText: string): void {
+  start(ideaText: string, workflowId: string = DEFAULT_WORKFLOW_ID): void {
     if (this.status === "running" || this.status === "stopped") {
       throw new Error("A run is already active");
     }
@@ -52,6 +64,22 @@ export class RunController {
       this.eventBus = new RunEventBus();
       this.busReplacedEmitter.emit("replaced");
     }
+    const workflow = this.config.workflowStore.get(workflowId);
+    if (!workflow) {
+      throw new Error(`Unknown workflow: ${workflowId}`);
+    }
+    const resolveAgents = (ids: string[]): AgentDefinition[] =>
+      ids.map((id) => {
+        const agent = this.config.agentStore.get(id);
+        if (!agent) throw new Error(`Unknown agent: ${id}`);
+        return agent;
+      });
+    const resolvedWorkflow: ResolvedWorkflow = {
+      afterAnalyst: resolveAgents(workflow.slots.afterAnalyst),
+      afterArchitect: resolveAgents(workflow.slots.afterArchitect),
+      afterQa: resolveAgents(workflow.slots.afterQa),
+    };
+    this.plan = [...buildStageSteps(resolvedWorkflow).map((step) => step.name), "tracing_pack"];
     const params: OrchestratorParams = {
       ideaText,
       owner: this.config.owner,
@@ -59,6 +87,7 @@ export class RunController {
       starterDir: this.config.starterDir,
       workDir: mkdtempSync(join(tmpdir(), "idea-to-mvp-")),
       githubToken: this.config.githubToken,
+      resolvedWorkflow,
     };
     this.runFrom(params, undefined);
   }
