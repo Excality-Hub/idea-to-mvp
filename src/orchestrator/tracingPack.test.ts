@@ -38,4 +38,39 @@ describe("formatTracingPackMarkdown", () => {
     expect(markdown).toContain("# Tracing Pack");
     expect(markdown).toContain("Outcome: **failed**");
   });
+
+  it("renders token usage and cost for an entry that has it", () => {
+    const entries: TracingPackEntry[] = [
+      {
+        stage: "analyst",
+        status: "done",
+        input: { ideaText: "Build a todo app" },
+        output: { summary: "A todo app" },
+        usage: {
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheCreationInputTokens: 10,
+          cacheReadInputTokens: 20,
+          costUsd: 0.0123,
+        },
+      },
+    ];
+
+    const markdown = formatTracingPackMarkdown(entries, "deployed");
+
+    expect(markdown).toContain("**Tokens**");
+    expect(markdown).toContain("input: 100");
+    expect(markdown).toContain("output: 50");
+    expect(markdown).toContain("cache read: 20");
+    expect(markdown).toContain("cache write: 10");
+    expect(markdown).toContain("cost: $0.0123");
+  });
+
+  it("omits the Tokens section for an entry with no usage", () => {
+    const entries: TracingPackEntry[] = [{ stage: "create_repo", status: "done", output: { htmlUrl: "x" } }];
+
+    const markdown = formatTracingPackMarkdown(entries, "deployed");
+
+    expect(markdown).not.toContain("**Tokens**");
+  });
 });

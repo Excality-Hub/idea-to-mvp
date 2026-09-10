@@ -1,4 +1,4 @@
-import { extractClaudeResultText, parseJsonBlock, runClaudeAgent } from "../claudeAgent.js";
+import { extractClaudeResultText, extractClaudeUsage, parseJsonBlock, runClaudeAgent, type AgentResult } from "../claudeAgent.js";
 import { DeveloperOutputSchema, type DeveloperOutput } from "./schemas.js";
 
 export function buildDeveloperPrompt(issueBody: string): string {
@@ -22,7 +22,7 @@ export async function runDeveloperAgent(
   issueBody: string,
   cwd: string,
   signal?: AbortSignal,
-): Promise<DeveloperOutput> {
+): Promise<AgentResult<DeveloperOutput>> {
   const prompt = buildDeveloperPrompt(issueBody);
   const rawOutput = await runClaudeAgent({
     prompt,
@@ -31,5 +31,6 @@ export async function runDeveloperAgent(
     signal,
   });
   const resultText = extractClaudeResultText(rawOutput);
-  return parseJsonBlock(resultText, DeveloperOutputSchema);
+  const output = parseJsonBlock(resultText, DeveloperOutputSchema);
+  return { output, usage: extractClaudeUsage(rawOutput) };
 }

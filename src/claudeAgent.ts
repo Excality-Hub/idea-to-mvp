@@ -89,6 +89,39 @@ export function extractClaudeResultText(rawOutput: string): string {
   return envelope.result;
 }
 
+export interface AgentUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  costUsd: number;
+}
+
+export interface AgentResult<T> {
+  output: T;
+  usage: AgentUsage;
+}
+
+export function extractClaudeUsage(rawOutput: string): AgentUsage {
+  const envelope = JSON.parse(rawOutput) as {
+    total_cost_usd?: number;
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+    };
+  };
+  const usage = envelope.usage ?? {};
+  return {
+    inputTokens: usage.input_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? 0,
+    cacheCreationInputTokens: usage.cache_creation_input_tokens ?? 0,
+    cacheReadInputTokens: usage.cache_read_input_tokens ?? 0,
+    costUsd: envelope.total_cost_usd ?? 0,
+  };
+}
+
 export function parseJsonBlock<T>(text: string, schema: z.ZodType<T>): T {
   const matches = [...text.matchAll(/```json[ \t]*\r?\n([\s\S]*?)\r?\n```(?=[ \t]*(?:\r?\n|$))/g)];
   if (matches.length === 0) {

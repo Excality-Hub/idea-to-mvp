@@ -12,6 +12,7 @@ import {
   AgentStoppedError,
   CLAUDE_AGENT_TIMEOUT_MS,
   extractClaudeResultText,
+  extractClaudeUsage,
   MAX_OUTPUT_BYTES,
   parseJsonBlock,
   runClaudeAgent,
@@ -139,6 +140,39 @@ describe("extractClaudeResultText", () => {
     expect(() => extractClaudeResultText("{}")).toThrow(
       "claude -p output did not include a 'result' string field",
     );
+  });
+});
+
+describe("extractClaudeUsage", () => {
+  it("reads token counts and cost from the claude -p JSON envelope", () => {
+    const rawOutput = JSON.stringify({
+      result: "hi",
+      total_cost_usd: 0.048562,
+      usage: {
+        input_tokens: 2,
+        output_tokens: 13,
+        cache_creation_input_tokens: 11273,
+        cache_read_input_tokens: 16680,
+      },
+    });
+
+    expect(extractClaudeUsage(rawOutput)).toEqual({
+      inputTokens: 2,
+      outputTokens: 13,
+      cacheCreationInputTokens: 11273,
+      cacheReadInputTokens: 16680,
+      costUsd: 0.048562,
+    });
+  });
+
+  it("defaults missing usage fields to 0 instead of throwing", () => {
+    expect(extractClaudeUsage('{"result":"hi"}')).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      costUsd: 0,
+    });
   });
 });
 

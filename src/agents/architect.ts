@@ -1,4 +1,4 @@
-import { extractClaudeResultText, parseJsonBlock, runClaudeAgent } from "../claudeAgent.js";
+import { extractClaudeResultText, extractClaudeUsage, parseJsonBlock, runClaudeAgent, type AgentResult } from "../claudeAgent.js";
 import { ArchitectOutputSchema, type AnalystOutput, type ArchitectOutput } from "./schemas.js";
 
 export type StarterLayout = "render" | "cloudflare";
@@ -42,9 +42,10 @@ export async function runArchitectAgent(
   cwd: string,
   starterLayout: StarterLayout,
   signal?: AbortSignal,
-): Promise<ArchitectOutput> {
+): Promise<AgentResult<ArchitectOutput>> {
   const prompt = buildArchitectPrompt(analystOutput, starterLayout);
   const rawOutput = await runClaudeAgent({ prompt, cwd, allowedTools: [], signal });
   const resultText = extractClaudeResultText(rawOutput);
-  return parseJsonBlock(resultText, ArchitectOutputSchema);
+  const output = parseJsonBlock(resultText, ArchitectOutputSchema);
+  return { output, usage: extractClaudeUsage(rawOutput) };
 }

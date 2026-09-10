@@ -1,3 +1,4 @@
+import { JsonTree } from "@/components/JsonTree";
 import { STAGE_STATUS_CONFIG, type StageDisplayStatus } from "@/components/status";
 import {
   Sheet,
@@ -6,7 +7,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { RunEvent } from "@/types";
@@ -42,7 +42,7 @@ export function StageDetailSheet({ label, status, events, open, onOpenChange }: 
           <SheetDescription>Full event log for this stage, live-updating.</SheetDescription>
         </SheetHeader>
         <Separator />
-        <ScrollArea className="flex-1 px-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4">
           {events.length === 0 ? (
             <p className="py-6 text-sm text-muted-foreground">
               No events yet &mdash; this stage hasn&rsquo;t started.
@@ -59,30 +59,43 @@ export function StageDetailSheet({ label, status, events, open, onOpenChange }: 
                   </div>
                   <p className="mt-1 break-words text-foreground">{event.message}</p>
                   {event.input !== undefined && (
-                    <div className="mt-2">
+                    <div className="mt-2 min-w-0">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         Input
                       </p>
-                      <pre className="mt-1 overflow-x-auto rounded bg-background p-2 text-foreground">
-                        {JSON.stringify(event.input, null, 2)}
-                      </pre>
+                      <div className="mt-1 rounded bg-background p-2 text-foreground">
+                        <JsonTree data={event.input} />
+                      </div>
                     </div>
                   )}
                   {event.output !== undefined && (
-                    <div className="mt-2">
+                    <div className="mt-2 min-w-0">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         Output
                       </p>
-                      <pre className="mt-1 overflow-x-auto rounded bg-background p-2 text-foreground">
-                        {JSON.stringify(event.output, null, 2)}
-                      </pre>
+                      <div className="mt-1 rounded bg-background p-2 text-foreground">
+                        <JsonTree data={event.output} />
+                      </div>
+                    </div>
+                  )}
+                  {event.usage !== undefined && (
+                    <div className="mt-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Tokens
+                      </p>
+                      <p className="mt-1 text-foreground">
+                        {event.usage.inputTokens.toLocaleString()} in &middot;{" "}
+                        {event.usage.outputTokens.toLocaleString()} out &middot;{" "}
+                        {event.usage.cacheReadInputTokens.toLocaleString()} cache-read &middot; $
+                        {event.usage.costUsd.toFixed(4)}
+                      </p>
                     </div>
                   )}
                 </li>
               ))}
             </ul>
           )}
-        </ScrollArea>
+        </div>
       </SheetContent>
     </Sheet>
   );

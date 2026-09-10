@@ -16,7 +16,7 @@ import type { DeployClient } from "../deploy/types.js";
 import { formatTracingPackMarkdown, type TracingPackEntry } from "./tracingPack.js";
 import { RunEventBus } from "./events.js";
 import { ABORTABLE_STAGES, type RunEvent, type StageName } from "./types.js";
-import { AgentStoppedError } from "../claudeAgent.js";
+import { AgentStoppedError, type AgentUsage } from "../claudeAgent.js";
 
 export interface OrchestratorParams {
   ideaText: string;
@@ -54,7 +54,7 @@ function stageEvent(
   stage: StageName,
   status: RunEvent["status"],
   message: string,
-  extra?: { input?: unknown; output?: unknown },
+  extra?: { input?: unknown; output?: unknown; usage?: AgentUsage },
 ): RunEvent {
   return { stage, status, message, timestamp: new Date().toISOString(), ...extra };
 }
@@ -140,9 +140,15 @@ const STAGE_STEPS: StageStep[] = [
     async run(ctx, params, deps, signal) {
       ctx.pendingInput = { ideaText: params.ideaText };
       deps.eventBus.emit(stageEvent("analyst", "running", "Analyzing idea", { input: ctx.pendingInput }));
-      const analystOutput = await deps.agents.analyst(params.ideaText, params.workDir, signal);
-      deps.eventBus.emit(stageEvent("analyst", "done", analystOutput.summary, { output: analystOutput }));
-      ctx.tracingEntries.push({ stage: "analyst", status: "done", input: ctx.pendingInput, output: analystOutput });
+      const { output: analystOutput, usage } = await deps.agents.analyst(params.ideaText, params.workDir, signal);
+      deps.eventBus.emit(stageEvent("analyst", "done", analystOutput.summary, { output: analystOutput, usage }));
+      ctx.tracingEntries.push({
+        stage: "analyst",
+        status: "done",
+        input: ctx.pendingInput,
+        output: analystOutput,
+        usage,
+      });
       ctx.analystOutput = analystOutput;
     },
   },
@@ -153,13 +159,21 @@ const STAGE_STEPS: StageStep[] = [
       ctx.pendingInput = { analystOutput: ctx.analystOutput };
       deps.eventBus.emit(stageEvent("architect", "running", "Planning implementation", { input: ctx.pendingInput }));
       const starterLayout = params.starterDir.includes("cloudflare") ? "cloudflare" : "render";
-      const architectOutput = await deps.agents.architect(ctx.analystOutput!, params.workDir, starterLayout, signal);
-      deps.eventBus.emit(stageEvent("architect", "done", architectOutput.issueTitle, { output: architectOutput }));
+      const { output: architectOutput, usage } = await deps.agents.architect(
+        ctx.analystOutput!,
+        params.workDir,
+        starterLayout,
+        signal,
+      );
+      deps.eventBus.emit(
+        stageEvent("architect", "done", architectOutput.issueTitle, { output: architectOutput, usage }),
+      );
       ctx.tracingEntries.push({
         stage: "architect",
         status: "done",
         input: ctx.pendingInput,
         output: architectOutput,
+        usage,
       });
       ctx.architectOutput = architectOutput;
     },
@@ -193,14 +207,21 @@ const STAGE_STEPS: StageStep[] = [
       }
       await deps.git.createAndCheckoutBranch(params.workDir, ctx.architectOutput!.branchName);
       await deps.git.resetWorkingTree(params.workDir);
-      const developerOutput = await deps.agents.developer(ctx.architectOutput!.issueBody, params.workDir, signal);
+      const { output: developerOutput, usage } = await deps.agents.developer(
+        ctx.architectOutput!.issueBody,
+        params.workDir,
+        signal,
+      );
       await deps.git.pushBranch(params.workDir, ctx.architectOutput!.branchName, params.githubToken);
-      deps.eventBus.emit(stageEvent("developer", "done", developerOutput.prTitle, { output: developerOutput }));
+      deps.eventBus.emit(
+        stageEvent("developer", "done", developerOutput.prTitle, { output: developerOutput, usage }),
+      );
       ctx.tracingEntries.push({
         stage: "developer",
         status: "done",
         input: ctx.pendingInput,
         output: developerOutput,
+        usage,
       });
       ctx.developerOutput = developerOutput;
     },
@@ -238,9 +259,9 @@ const STAGE_STEPS: StageStep[] = [
       deps.eventBus.emit(stageEvent("qa", "running", "Reviewing the pull request"));
       const diff = await deps.git.diffAgainstBase(params.workDir, BASE_BRANCH);
       ctx.pendingInput = { diff };
-      const qaOutput = await deps.agents.qa(diff, params.workDir, signal);
-      deps.eventBus.emit(stageEvent("qa", "done", qaOutput.verdict, { output: qaOutput }));
-      ctx.tracingEntries.push({ stage: "qa", status: "done", input: ctx.pendingInput, output: qaOutput });
+      const { output: qaOutput, usage } = await deps.agents.qa(diff, params.workDir, signal);
+      deps.eventBus.emit(stageEvent("qa", "done", qaOutput.verdict, { output: qaOutput, usage }));
+      ctx.tracingEntries.push({ stage: "qa", status: "done", input: ctx.pendingInput, output: qaOutput, usage });
       ctx.diff = diff;
       ctx.qaOutput = qaOutput;
     },

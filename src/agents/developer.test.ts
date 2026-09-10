@@ -22,15 +22,26 @@ describe("buildDeveloperPrompt", () => {
 });
 
 describe("runDeveloperAgent", () => {
-  it("runs with file and bash tools enabled and returns the parsed output", async () => {
+  it("runs with file and bash tools enabled and returns the parsed output and token usage", async () => {
     const rawOutput = JSON.stringify({
       result: `Done.\n\`\`\`json\n${JSON.stringify(fakeDeveloperJson)}\n\`\`\``,
+      total_cost_usd: 0.05,
+      usage: { input_tokens: 500, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     });
     vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
 
     const result = await runDeveloperAgent("Implement add/complete task endpoints.", "/tmp/work");
 
-    expect(result).toEqual(fakeDeveloperJson);
+    expect(result).toEqual({
+      output: fakeDeveloperJson,
+      usage: {
+        inputTokens: 500,
+        outputTokens: 300,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        costUsd: 0.05,
+      },
+    });
     expect(runClaudeAgent).toHaveBeenCalledWith({
       prompt: expect.stringContaining("Implement add/complete task endpoints."),
       cwd: "/tmp/work",

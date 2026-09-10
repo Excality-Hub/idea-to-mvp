@@ -1,4 +1,4 @@
-import { extractClaudeResultText, parseJsonBlock, runClaudeAgent } from "../claudeAgent.js";
+import { extractClaudeResultText, extractClaudeUsage, parseJsonBlock, runClaudeAgent, type AgentResult } from "../claudeAgent.js";
 import { QAOutputSchema, type QAOutput } from "./schemas.js";
 
 export function buildQaPrompt(diff: string): string {
@@ -17,9 +17,14 @@ export function buildQaPrompt(diff: string): string {
   ].join("\n");
 }
 
-export async function runQaAgent(diff: string, cwd: string, signal?: AbortSignal): Promise<QAOutput> {
+export async function runQaAgent(
+  diff: string,
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<AgentResult<QAOutput>> {
   const prompt = buildQaPrompt(diff);
   const rawOutput = await runClaudeAgent({ prompt, cwd, allowedTools: ["Read"], signal });
   const resultText = extractClaudeResultText(rawOutput);
-  return parseJsonBlock(resultText, QAOutputSchema);
+  const output = parseJsonBlock(resultText, QAOutputSchema);
+  return { output, usage: extractClaudeUsage(rawOutput) };
 }
