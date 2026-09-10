@@ -1,9 +1,9 @@
 # idea-to-mvp
 
-Takes a short idea/brief in Markdown and drives it through Analyst,
-Architect, Developer, and QA `claude -p` agents, ending with a merged,
-reviewed pull request deployed live to Render or Cloudflare Workers,
-depending on `DEPLOY_TARGET`. See
+Takes a short idea/brief typed into its dashboard and drives it through
+Analyst, Architect, Developer, and QA `claude -p` agents, ending with a
+merged, reviewed pull request deployed live to Render or Cloudflare
+Workers, depending on `DEPLOY_TARGET`. See
 `docs/superpowers/specs/2026-09-06-idea-to-mvp-design.md` for the full
 design.
 
@@ -34,27 +34,27 @@ design.
 
 ## Manual demo
 
-1. Write a short idea, e.g. `idea.md`:
-   ```md
-   Build a small todo app: users can add a task and mark it done.
-   ```
-2. Run it: `node dist/cli.js run ./idea.md` (or `npm run dev -- run ./idea.md`).
-3. A browser tab opens automatically at `http://localhost:3000` showing
-   the Workflows dashboard: each of the 10 pipeline stages as a card that
-   lights up live as it runs. Click any stage to open its full event log
-   (timestamps + messages, including links to the GitHub repo, issue, and
-   PR as they're created).
-4. The run ends either on a live URL (QA passed, on whichever target
+1. Run it: `node dist/cli.js` (or `npm run dev`).
+2. A browser tab opens automatically at `http://localhost:3000` showing
+   the Workflows dashboard, idle and waiting for input.
+3. Type your idea and its requirements into the "Idea & requirements"
+   box, e.g. `Build a small todo app: users can add a task and mark it
+   done.`, and click "Start run".
+4. Each of the 10 pipeline stages lights up live as a card as it runs.
+   Click any stage to open its full event log (timestamps + messages,
+   including links to the GitHub repo, issue, and PR as they're created).
+5. The run ends either on a live URL (QA passed, on whichever target
    `DEPLOY_TARGET` selected) or a "blocked"
-   state linking to the PR (QA found a critical issue).
+   state linking to the PR (QA found a critical issue). From there,
+   "Start a new run" submits another idea in the same session.
 
 ### Iterating on the dashboard UI
 
 The dashboard is a React + TypeScript + shadcn/ui app in `web/`. For a
 fast edit-reload loop against a real run's event stream, run the backend
-(`npm run dev -- run ./idea.md`) and, in a second terminal,
-`npm run dev --prefix web` — Vite proxies `/events` to the backend on
-`:3000` and serves the UI with HMR on `:5173`.
+(`npm run dev`) and, in a second terminal, `npm run dev --prefix web` —
+Vite proxies `/events` to the backend on `:3000` and serves the UI with
+HMR on `:5173`.
 
 ## Testing
 

@@ -61,13 +61,13 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
       {showForm ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-card p-6">
           <label htmlFor="idea-text" className="text-sm font-medium text-foreground">
-            Idea
+            Idea &amp; requirements
           </label>
           <textarea
             id="idea-text"
             className="w-full max-w-lg rounded-lg border border-border bg-background p-3 text-sm"
             style={{ minHeight: 96 }}
-            placeholder="Describe the product idea to build..."
+            placeholder="Describe what you want to build and any specific requirements..."
             value={ideaText}
             onChange={(event) => setIdeaText(event.target.value)}
           />

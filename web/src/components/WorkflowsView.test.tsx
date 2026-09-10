@@ -60,7 +60,7 @@ describe("WorkflowsView", () => {
   it("shows an idea input and Start button when idle (no events yet)", () => {
     render(<WorkflowsView eventsByStage={{}} />);
 
-    expect(screen.getByLabelText("Idea")).toBeInTheDocument();
+    expect(screen.getByLabelText("Idea & requirements")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start run" })).toBeInTheDocument();
   });
 
@@ -70,7 +70,7 @@ describe("WorkflowsView", () => {
     const user = userEvent.setup();
     render(<WorkflowsView eventsByStage={{}} />);
 
-    await user.type(screen.getByLabelText("Idea"), "Build a todo app");
+    await user.type(screen.getByLabelText("Idea & requirements"), "Build a todo app");
     await user.click(screen.getByRole("button", { name: "Start run" }));
 
     expect(fetchMock).toHaveBeenCalledWith("/api/run", {
@@ -84,14 +84,14 @@ describe("WorkflowsView", () => {
   it("does not show the idea form once a run has started", () => {
     render(<WorkflowsView eventsByStage={eventsByStage} />);
 
-    expect(screen.queryByLabelText("Idea")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Idea & requirements")).not.toBeInTheDocument();
   });
 
   it("shows a 'Start a new run' button once the run reaches a terminal outcome", () => {
     render(<WorkflowsView eventsByStage={deployedEventsByStage} />);
 
     expect(screen.getByRole("button", { name: "Start a new run" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Idea")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Idea & requirements")).not.toBeInTheDocument();
   });
 
   it("reveals the idea form when 'Start a new run' is clicked", async () => {
@@ -100,6 +100,6 @@ describe("WorkflowsView", () => {
 
     await user.click(screen.getByRole("button", { name: "Start a new run" }));
 
-    expect(screen.getByLabelText("Idea")).toBeInTheDocument();
+    expect(screen.getByLabelText("Idea & requirements")).toBeInTheDocument();
   });
 });
