@@ -83,7 +83,7 @@ describe("PipelinesView", () => {
     const fetchMock = stubFetch({ workflows: [defaultWorkflow, workflow] });
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/api/agents") return Promise.resolve({ ok: true, json: () => Promise.resolve([agentA, agentB]) });
-      if (url === "/api/workflows" && init?.method === "DELETE") return Promise.resolve({ ok: true });
+      if (init?.method === "DELETE") return Promise.resolve({ ok: true });
       if (url === "/api/workflows") return Promise.resolve({ ok: true, json: () => Promise.resolve([defaultWorkflow, workflow]) });
       return Promise.reject(new Error(`unexpected fetch ${url}`));
     });
