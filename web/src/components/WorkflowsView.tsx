@@ -6,7 +6,7 @@ import { StageNode } from "@/components/StageNode";
 import { StageDetailSheet } from "@/components/StageDetailSheet";
 import { deriveOverallStatus, deriveStageStatus, type EventsByStage } from "@/lib/runEvents";
 import { buildStageEdges, buildStageNodes } from "@/lib/workflowGraph";
-import { STAGE_LABELS, type StageName } from "@/types";
+import { STAGE_LABELS, STAGE_ORDER, type StageName } from "@/types";
 
 interface WorkflowsViewProps {
   eventsByStage: EventsByStage;
@@ -21,8 +21,11 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
   const [starting, setStarting] = useState(false);
   const [showStartForm, setShowStartForm] = useState(false);
 
-  const nodes = useMemo(() => buildStageNodes(eventsByStage), [eventsByStage]);
-  const edges = useMemo(() => buildStageEdges(eventsByStage), [eventsByStage]);
+  const nodes = useMemo(
+    () => buildStageNodes(eventsByStage, STAGE_ORDER, (stage) => STAGE_LABELS[stage as Exclude<StageName, `custom:${string}`>]),
+    [eventsByStage],
+  );
+  const edges = useMemo(() => buildStageEdges(eventsByStage, STAGE_ORDER), [eventsByStage]);
   const overallStatus = deriveOverallStatus(eventsByStage);
   const isIdle = overallStatus === "idle";
   const isTerminal = TERMINAL_STATUSES.has(overallStatus);
