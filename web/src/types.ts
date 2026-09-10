@@ -14,7 +14,7 @@ export type StageName =
   | "deploy"
   | "tracing_pack";
 
-export type StageStatus = "running" | "done" | "failed" | "blocked";
+export type StageStatus = "running" | "done" | "failed" | "blocked" | "stopped";
 
 export interface RunEvent {
   stage: StageName;
@@ -53,4 +53,6 @@ export const STAGE_LABELS: Record<StageName, string> = {
   tracing_pack: "Tracing pack",
 };
 
-export type OverallStatus = "idle" | "running" | "deployed" | "blocked" | "failed";
+export const ABORTABLE_STAGES: StageName[] = ["analyst", "architect", "developer", "qa"];
+
+export type OverallStatus = "idle" | "running" | "deployed" | "blocked" | "failed" | "stopped";

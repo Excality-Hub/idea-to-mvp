@@ -11,7 +11,7 @@ export function App() {
       <Header overallStatus={overallStatus} connected={connected} />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-hidden">
           <WorkflowsView eventsByStage={eventsByStage} />
         </main>
       </div>

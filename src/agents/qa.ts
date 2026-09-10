@@ -17,9 +17,9 @@ export function buildQaPrompt(diff: string): string {
   ].join("\n");
 }
 
-export async function runQaAgent(diff: string, cwd: string): Promise<QAOutput> {
+export async function runQaAgent(diff: string, cwd: string, signal?: AbortSignal): Promise<QAOutput> {
   const prompt = buildQaPrompt(diff);
-  const rawOutput = await runClaudeAgent({ prompt, cwd, allowedTools: ["Read"] });
+  const rawOutput = await runClaudeAgent({ prompt, cwd, allowedTools: ["Read"], signal });
   const resultText = extractClaudeResultText(rawOutput);
   return parseJsonBlock(resultText, QAOutputSchema);
 }

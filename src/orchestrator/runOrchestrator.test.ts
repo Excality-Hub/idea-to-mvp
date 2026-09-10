@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { AgentStoppedError } from "../claudeAgent.js";
 import { RunEventBus } from "./events.js";
 import { runOrchestrator, type OrchestratorDeps, type OrchestratorParams } from "./runOrchestrator.js";
 import type { RunEvent } from "./types.js";
@@ -29,13 +30,14 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
     mergePullRequest: vi.fn().mockResolvedValue(undefined),
     commitFile: vi.fn().mockResolvedValue({ sha: "tracing-pack-sha" }),
   };
-  const render = {
-    createService: vi.fn().mockResolvedValue({ serviceId: "srv-1" }),
-    waitForLive: vi.fn().mockResolvedValue({ url: "https://idea-to-mvp-app-1.onrender.com" }),
+  const deploy = {
+    label: "Render",
+    deploy: vi.fn().mockResolvedValue({ url: "https://idea-to-mvp-app-1.onrender.com" }),
   };
   const git = {
     cloneRepo: vi.fn().mockResolvedValue(undefined),
     createAndCheckoutBranch: vi.fn().mockResolvedValue(undefined),
+    resetWorkingTree: vi.fn().mockResolvedValue(undefined),
     pushBranch: vi.fn().mockResolvedValue(undefined),
     diffAgainstBase: vi.fn().mockResolvedValue("diff --git a/server.js b/server.js"),
   };
@@ -59,7 +61,7 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
   return {
     eventBus: new RunEventBus(),
     github: github as never,
-    render: render as never,
+    deploy: deploy as never,
     git: git as never,
     agents: agents as never,
     readStarterFiles: vi.fn().mockReturnValue([{ path: "package.json", content: "{}" }]),
@@ -81,10 +83,11 @@ describe("runOrchestrator", () => {
       prUrl: "https://github.com/org/idea-to-mvp-app-1/pull/2",
     });
     expect(deps.github.mergePullRequest).toHaveBeenCalledWith("org", "idea-to-mvp-app-1", 2);
-    expect(deps.render.createService).toHaveBeenCalledWith({
+    expect(deps.deploy.deploy).toHaveBeenCalledWith({
       name: "idea-to-mvp-app-1",
       repoUrl: "https://github.com/org/idea-to-mvp-app-1",
       branch: "main",
+      workDir: "/tmp/work",
     });
     expect(events).toEqual([
       "create_repo:running",
@@ -169,7 +172,7 @@ describe("runOrchestrator", () => {
 
     expect(outcome.status).toBe("blocked");
     expect(deps.github.mergePullRequest).not.toHaveBeenCalled();
-    expect(deps.render.createService).not.toHaveBeenCalled();
+    expect(deps.deploy.deploy).not.toHaveBeenCalled();
     expect(deps.github.commitFile).toHaveBeenCalledTimes(1);
     const [, , , content] = vi.mocked(deps.github.commitFile).mock.calls[0];
     expect(content).toContain("Outcome: **blocked**");
@@ -228,6 +231,108 @@ describe("runOrchestrator", () => {
 
     expect(outcome.status).toBe("deployed");
     expect(deps.github.mergePullRequest).toHaveBeenCalledWith("org", "idea-to-mvp-app-1", 2);
-    expect(deps.render.createService).toHaveBeenCalled();
+    expect(deps.deploy.deploy).toHaveBeenCalled();
+  });
+
+  it("stops the run when the developer agent is aborted, without committing a tracing pack", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.developer).mockImplementation(
+      (_issueBody: string, _cwd: string, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new AgentStoppedError());
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
+        }),
+    );
+    const outcome = await runOrchestrator(params, deps, undefined, (controller) => controller?.abort());
+
+    expect(outcome.status).toBe("stopped");
+    if (outcome.status === "stopped") {
+      expect(outcome.stage).toBe("developer");
+      expect(outcome.resumeState.stageIndex).toBeGreaterThanOrEqual(0);
+      expect(outcome.resumeState.ctx.repo).toBeDefined();
+    }
+    expect(deps.github.commitFile).not.toHaveBeenCalled();
+  });
+
+  it("resumes a stopped run from the stored snapshot and continues to completion", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.developer).mockImplementationOnce(
+      (_issueBody: string, _cwd: string, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new AgentStoppedError());
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
+        }),
+    );
+    const stopped = await runOrchestrator(params, deps, undefined, (controller) => controller?.abort());
+    if (stopped.status !== "stopped") throw new Error("expected a stopped outcome");
+
+    const outcome = await runOrchestrator(params, deps, stopped.resumeState);
+
+    expect(outcome.status).toBe("deployed");
+    expect(deps.git.createAndCheckoutBranch).toHaveBeenCalledTimes(2);
+    expect(deps.github.mergePullRequest).toHaveBeenCalled();
+  });
+
+  it("does not re-clone the repo on resume, but does re-checkout the branch to discard partial edits", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.developer).mockImplementationOnce(
+      (_issueBody: string, _cwd: string, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new AgentStoppedError());
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
+        }),
+    );
+    const stopped = await runOrchestrator(params, deps, undefined, (controller) => controller?.abort());
+    if (stopped.status !== "stopped") throw new Error("expected a stopped outcome");
+
+    const outcome = await runOrchestrator(params, deps, stopped.resumeState);
+
+    expect(deps.git.cloneRepo).toHaveBeenCalledTimes(1);
+    expect(deps.git.createAndCheckoutBranch).toHaveBeenCalledTimes(2);
+    expect(deps.git.resetWorkingTree).toHaveBeenCalledTimes(2);
+    expect(outcome.status).toBe("deployed");
+  });
+
+  it("does not let a stop that lands after an abortable stage's agent call already resolved poison a later abortable stage", async () => {
+    const deps = makeDeps();
+    // qa must actually honour its signal for this test to have teeth: with the old
+    // run-scoped signal, qa would inherit developer's already-aborted signal and
+    // stop here, so an inert qa mock would let the buggy design pass.
+    vi.mocked(deps.agents.qa).mockImplementation(
+      (_diff: string, _cwd: string, signal?: AbortSignal) =>
+        new Promise((resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new AgentStoppedError());
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
+          resolve({ verdict: "pass", findings: [] });
+        }),
+    );
+    let developerController: AbortController | undefined;
+
+    const outcome = await runOrchestrator(params, deps, undefined, (controller) => {
+      if (controller) {
+        developerController = controller;
+      } else {
+        // This branch runs once developer's run() (agent call + pushBranch) has
+        // fully finished. Aborting the now-stale controller here simulates a
+        // stop() request that physically arrives after developer's agent call
+        // already resolved. It must not affect qa's later, separate controller.
+        developerController?.abort();
+      }
+    });
+
+    expect(outcome.status).toBe("deployed");
+    expect(deps.agents.qa).toHaveBeenCalled();
   });
 });

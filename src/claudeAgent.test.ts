@@ -9,6 +9,7 @@ vi.mock("node:child_process", () => ({
 
 import { spawn } from "node:child_process";
 import {
+  AgentStoppedError,
   CLAUDE_AGENT_TIMEOUT_MS,
   extractClaudeResultText,
   MAX_OUTPUT_BYTES,
@@ -37,6 +38,7 @@ describe("runClaudeAgent", () => {
     } else {
       process.env.CLAUDE_CLI_COMMAND = originalCliCommand;
     }
+    vi.clearAllMocks();
   });
 
   it("resolves with stdout when the process exits 0", async () => {
@@ -93,6 +95,39 @@ describe("runClaudeAgent", () => {
 
     await expect(promise).rejects.toThrow("claude -p exited with code 1: boom");
   });
+
+  it("rejects immediately with AgentStoppedError when the signal is already aborted, without spawning", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const promise = runClaudeAgent({
+      prompt: "do it",
+      cwd: "/tmp/repo",
+      allowedTools: [],
+      signal: controller.signal,
+    });
+
+    await expect(promise).rejects.toThrow(AgentStoppedError);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("kills the process and rejects with AgentStoppedError when the signal aborts mid-run", async () => {
+    const child = makeFakeChild();
+    vi.mocked(spawn).mockReturnValue(child as never);
+    const controller = new AbortController();
+
+    const promise = runClaudeAgent({
+      prompt: "do it",
+      cwd: "/tmp/repo",
+      allowedTools: [],
+      signal: controller.signal,
+    });
+    controller.abort();
+    child.emit("close", null);
+
+    await expect(promise).rejects.toThrow(AgentStoppedError);
+    expect(child.kill).toHaveBeenCalled();
+  });
 });
 
 describe("extractClaudeResultText", () => {
@@ -136,5 +171,14 @@ describe("parseJsonBlock", () => {
   it("uses the last fenced json block when there are multiple", () => {
     const text = 'First attempt:\n```json\n{"ok": false}\n```\nActually, final answer:\n```json\n{"ok": true}\n```';
     expect(parseJsonBlock(text, schema)).toEqual({ ok: true });
+  });
+
+  it("does not close the fence early when a string value contains an inline triple-backtick", () => {
+    const bodySchema = z.object({ issueBody: z.string() });
+    const text =
+      'Plan:\n```json\n{"issueBody": "Add a snippet like ```js\\nconsole.log(1)\\n``` to the README."}\n```';
+    expect(parseJsonBlock(text, bodySchema)).toEqual({
+      issueBody: "Add a snippet like ```js\nconsole.log(1)\n``` to the README.",
+    });
   });
 });

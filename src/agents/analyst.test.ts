@@ -40,4 +40,18 @@ describe("runAnalystAgent", () => {
       allowedTools: [],
     });
   });
+
+  it("forwards the abort signal to runClaudeAgent", async () => {
+    const rawOutput = JSON.stringify({
+      result: `Some explanation.\n\`\`\`json\n${JSON.stringify(fakeAnalystJson)}\n\`\`\``,
+    });
+    vi.mocked(runClaudeAgent).mockResolvedValue(rawOutput);
+    const controller = new AbortController();
+
+    await runAnalystAgent("Build a todo app", "/tmp/work", controller.signal);
+
+    expect(runClaudeAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
 });
