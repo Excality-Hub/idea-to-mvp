@@ -136,6 +136,39 @@ describe("PipelineEditor", () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 
+  it("surfaces a fallback error and does not call onSaved when the save request rejects", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/api/agents") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([agentA, agentB]) });
+      }
+      return Promise.reject(new Error("network down"));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onSaved = vi.fn();
+    const user = userEvent.setup();
+
+    render(<PipelineEditor onSaved={onSaved} onCancel={() => {}} />);
+    await waitFor(() => expect(screen.getByLabelText("Name")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Name"), "X");
+
+    await user.click(screen.getByRole("button", { name: "Save pipeline" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Could not reach the server. Check your connection and try again.")).toBeInTheDocument(),
+    );
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("shows the agents fetch error inside the palette", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+
+    render(<PipelineEditor onSaved={() => {}} onCancel={() => {}} />);
+
+    await waitFor(() =>
+      expect(within(screen.getByTestId("agent-palette")).getByText("Failed to load agents (undefined)")).toBeInTheDocument(),
+    );
+  });
+
   it("calls onCancel when Cancel is clicked", async () => {
     stubFetch();
     const onCancel = vi.fn();

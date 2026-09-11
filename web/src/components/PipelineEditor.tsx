@@ -156,7 +156,7 @@ function PaletteCard({ agent }: { agent: AgentDefinition }) {
 }
 
 export function PipelineEditor({ initial, onSaved, onCancel }: PipelineEditorProps) {
-  const { agents } = useAgents();
+  const { agents, error: agentsError } = useAgents();
   const [name, setName] = useState(initial?.name ?? "");
   const [slots, setSlots] = useState<SlotsState>(initial?.slots ?? EMPTY_SLOTS);
   const [submitting, setSubmitting] = useState(false);
@@ -189,11 +189,19 @@ export function PipelineEditor({ initial, onSaved, onCancel }: PipelineEditorPro
         body: JSON.stringify({ name, slots }),
       });
       if (!res.ok) {
-        const body = (await res.json()) as { error?: string };
-        setFormError(body.error ?? "Could not save this pipeline");
+        let message = "Could not save this pipeline";
+        try {
+          const body = (await res.json()) as { error?: string };
+          message = body.error ?? message;
+        } catch {
+          // response body wasn't JSON (e.g. a proxy's HTML error page) — keep the fallback message
+        }
+        setFormError(message);
         return;
       }
       onSaved();
+    } catch {
+      setFormError("Could not reach the server. Check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -228,6 +236,7 @@ export function PipelineEditor({ initial, onSaved, onCancel }: PipelineEditorPro
           </div>
           <div data-testid="agent-palette" className="flex w-56 shrink-0 flex-col gap-2">
             <h2 className="text-sm font-medium text-foreground">Available agents</h2>
+            {agentsError && <p className="text-sm text-destructive">{agentsError}</p>}
             {paletteAgents.map((agent) => (
               <PaletteCard key={agent.id} agent={agent} />
             ))}
