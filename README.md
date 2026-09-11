@@ -40,9 +40,12 @@ design.
 3. Type your idea and its requirements into the "Idea & requirements"
    box, e.g. `Build a small todo app: users can add a task and mark it
    done.`, and click "Start run".
-4. Each of the 10 pipeline stages lights up live as a card as it runs.
-   Click any stage to open its full event log (timestamps + messages,
-   including links to the GitHub repo, issue, and PR as they're created).
+4. Each pipeline stage lights up live as a card as it runs (the stage
+   count and order depend on the pipeline you selected — a custom
+   pipeline with extra agents slotted in has more stages than the
+   default backbone). Click any stage to open its full event log
+   (timestamps + messages, including links to the GitHub repo, issue,
+   and PR as they're created).
 5. The run ends either on a live URL (QA passed, on whichever target
    `DEPLOY_TARGET` selected) or a "blocked"
    state linking to the PR (QA found a critical issue). From there,
@@ -51,7 +54,11 @@ design.
 Custom agents and workflows you create are persisted to `data/agents.json`
 and `data/workflows.json` (gitignored) via `POST /api/agents` and
 `POST /api/workflows` — see `docs/superpowers/specs/2026-09-10-configurable-agents-design.md`.
-There is no dashboard UI for authoring them yet; use the API directly, e.g.:
+Use the dashboard's "Agents" and "Pipelines" pages (in the sidebar) to
+author them: create a custom agent on the Agents page, then slot it into
+a named pipeline — after Analyst, Architect, and/or QA — on the Pipelines
+page, and pick that pipeline when starting a run. For scripting or bulk
+setup, the API also works directly, e.g.:
 
 ```bash
 curl -X POST localhost:3000/api/agents -H 'Content-Type: application/json' \
