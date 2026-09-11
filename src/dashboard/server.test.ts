@@ -160,6 +160,7 @@ function makeAgentStore(agents: AgentDefinition[] = []): AgentStore {
     list: vi.fn(() => agents),
     get: (id) => agents.find((a) => a.id === id),
     create: vi.fn((item) => agents.push(item)),
+    update: vi.fn(),
     delete: vi.fn(),
   };
 }
@@ -169,6 +170,7 @@ function makeWorkflowStore(workflows: WorkflowDefinition[] = []): WorkflowStore 
     list: vi.fn(() => workflows),
     get: (id) => workflows.find((w) => w.id === id),
     create: vi.fn((item) => workflows.push(item)),
+    update: vi.fn(),
     delete: vi.fn(),
   };
 }
