@@ -7,6 +7,8 @@ import { Octokit } from "@octokit/rest";
 import open from "open";
 import { runAnalystAgent } from "./agents/analyst.js";
 import { runArchitectAgent } from "./agents/architect.js";
+import { createAgentStore } from "./agents/agentStore.js";
+import { runCustomAgent } from "./agents/custom.js";
 import { runDeveloperAgent } from "./agents/developer.js";
 import { runQaAgent } from "./agents/qa.js";
 import { loadConfig } from "./config.js";
@@ -18,6 +20,7 @@ import { GithubClient } from "./github/client.js";
 import { readStarterFiles } from "./github/readStarterFiles.js";
 import { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch, resetWorkingTree } from "./git.js";
 import { RunController } from "./orchestrator/runController.js";
+import { createWorkflowStore } from "./orchestrator/workflowStore.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -31,10 +34,14 @@ async function main(): Promise<void> {
     config.deployTarget === "cloudflare"
       ? new CloudflareClient(config.cloudflareApiToken!, config.cloudflareAccountId!)
       : new RenderClient(config.renderApiKey!, config.renderOwnerId!);
+  const agentStore = createAgentStore(fileURLToPath(new URL("../data/agents.json", import.meta.url)));
+  const workflowStore = createWorkflowStore(fileURLToPath(new URL("../data/workflows.json", import.meta.url)));
   const controller = new RunController({
     owner: config.targetGithubOwner,
     starterDir,
     githubToken: config.githubToken,
+    agentStore,
+    workflowStore,
     deps: {
       github: new GithubClient(octokit),
       deploy: deployClient,
@@ -44,6 +51,7 @@ async function main(): Promise<void> {
         architect: runArchitectAgent,
         developer: runDeveloperAgent,
         qa: runQaAgent,
+        custom: runCustomAgent,
       },
       readStarterFiles,
     },
@@ -53,7 +61,7 @@ async function main(): Promise<void> {
     console.log(`[${event.stage}] ${event.status}: ${event.message}`);
   });
 
-  const app = createDashboardServer(controller);
+  const app = createDashboardServer(controller, agentStore, workflowStore);
   app.listen(config.port, "127.0.0.1", () => {
     console.log(`Dashboard listening on http://localhost:${config.port}`);
   });
