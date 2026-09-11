@@ -30,7 +30,7 @@ function makeWorkflowStore(workflows: WorkflowDefinition[]): WorkflowStore {
 const DEFAULT_WORKFLOW: WorkflowDefinition = {
   id: "default",
   name: "Default",
-  slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] },
+  slots: {},
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
@@ -203,7 +203,7 @@ describe("RunController", () => {
       {
         id: "broken",
         name: "Broken",
-        slots: { afterAnalyst: ["missing-agent"], afterArchitect: [], afterQa: [] },
+        slots: { analyst: ["missing-agent"] },
         createdAt: "2026-01-01T00:00:00.000Z",
       },
     ]);
@@ -219,7 +219,7 @@ describe("RunController", () => {
       {
         id: "broken",
         name: "Broken",
-        slots: { afterAnalyst: ["missing-agent"], afterArchitect: [], afterQa: [] },
+        slots: { analyst: ["missing-agent"] },
         createdAt: "2026-01-01T00:00:00.000Z",
       },
     ]);
@@ -270,7 +270,7 @@ describe("RunController", () => {
       {
         id: "with-review",
         name: "With security review",
-        slots: { afterAnalyst: ["sec-1"], afterArchitect: [], afterQa: [] },
+        slots: { analyst: ["sec-1"] },
         createdAt: "2026-01-01T00:00:00.000Z",
       },
     ]);
@@ -286,5 +286,42 @@ describe("RunController", () => {
     expect(outcome?.status).toBe("deployed");
     expect(controller.getPlan()).toContain("custom:sec-1");
     expect(config.deps.agents.custom).toHaveBeenCalled();
+  });
+
+  it("runs a custom agent inserted after a backbone stage other than analyst/architect/qa", async () => {
+    const config = makeConfig();
+    const auditor: AgentDefinition = {
+      id: "auditor-1",
+      name: "Deploy Auditor",
+      instructions: "Double-check the deploy result.",
+      repoAccess: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    config.agentStore = makeAgentStore([auditor]);
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      {
+        id: "with-audit",
+        name: "With deploy audit",
+        slots: { deploy: ["auditor-1"] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    vi.mocked(config.deps.agents.custom).mockResolvedValue({
+      output: { text: "Deploy looks fine." },
+      usage: { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, costUsd: 0.001 },
+    });
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app", "with-audit");
+    const outcome = await controller.getRunPromise();
+
+    expect(outcome.status).toBe("deployed");
+    expect(config.deps.agents.custom).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "auditor-1" }),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });

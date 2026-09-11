@@ -6,7 +6,7 @@ import type { RunController } from "../orchestrator/runController.js";
 import type { AgentStore } from "../agents/agentStore.js";
 import { AgentDefinitionInputSchema, type AgentDefinition } from "../agents/types.js";
 import { DEFAULT_WORKFLOW_ID, type WorkflowStore } from "../orchestrator/workflowStore.js";
-import { WorkflowInputSchema, type WorkflowDefinition } from "../orchestrator/types.js";
+import { BACKBONE_STAGES, WorkflowInputSchema, type BackboneStage, type WorkflowDefinition } from "../orchestrator/types.js";
 
 export interface RunSession {
   eventBus: RunEventBus;
@@ -104,9 +104,7 @@ export function createAgentHandlers(
 
   const remove: express.RequestHandler = (req, res) => {
     const id = req.params.id;
-    const inUse = workflowStore
-      .list()
-      .some((w) => w.slots.afterAnalyst.includes(id) || w.slots.afterArchitect.includes(id) || w.slots.afterQa.includes(id));
+    const inUse = workflowStore.list().some((w) => Object.values(w.slots).some((ids) => ids?.includes(id)));
     if (inUse) {
       res.status(409).json({ error: "Agent is used by a workflow" });
       return;
@@ -134,11 +132,14 @@ export function createWorkflowHandlers(
     if (!parsed.success) {
       return { ok: false, error: parsed.error.message };
     }
-    const allIds = [
-      ...parsed.data.slots.afterAnalyst,
-      ...parsed.data.slots.afterArchitect,
-      ...parsed.data.slots.afterQa,
-    ];
+    const unknownStage = Object.keys(parsed.data.slots).find(
+      (stage) => !(BACKBONE_STAGES as readonly string[]).includes(stage),
+    );
+    if (unknownStage) {
+      return { ok: false, error: `Unknown backbone stage: ${unknownStage}` };
+    }
+    const slots = parsed.data.slots as Partial<Record<BackboneStage, string[]>>;
+    const allIds = Object.values(slots).flat();
     const unknownId = allIds.find((id) => !agentStore.get(id));
     if (unknownId) {
       return { ok: false, error: `Unknown agent id: ${unknownId}` };
@@ -146,7 +147,7 @@ export function createWorkflowHandlers(
     if (new Set(allIds).size !== allIds.length) {
       return { ok: false, error: "An agent may appear at most once across a workflow's slots" };
     }
-    return { ok: true, data: parsed.data };
+    return { ok: true, data: { name: parsed.data.name, slots } };
   }
 
   const list: express.RequestHandler = (_req, res) => {

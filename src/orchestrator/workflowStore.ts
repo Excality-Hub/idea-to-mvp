@@ -8,7 +8,7 @@ export const DEFAULT_WORKFLOW_ID = "default";
 const DEFAULT_WORKFLOW: WorkflowDefinition = {
   id: DEFAULT_WORKFLOW_ID,
   name: "Default",
-  slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] },
+  slots: {},
   createdAt: new Date(0).toISOString(),
 };
 

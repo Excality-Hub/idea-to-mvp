@@ -14,7 +14,7 @@ import {
 import type { AgentDefinition } from "../agents/types.js";
 import type { AgentStore } from "../agents/agentStore.js";
 import { DEFAULT_WORKFLOW_ID, type WorkflowStore } from "./workflowStore.js";
-import type { ResolvedWorkflow, StageName } from "./types.js";
+import { BACKBONE_STAGES, type BackboneStage, type ResolvedWorkflow, type StageName } from "./types.js";
 
 export type RunControllerStatus = "idle" | "running" | "stopped" | "done";
 
@@ -71,9 +71,9 @@ export class RunController {
         return agent;
       });
     const resolvedWorkflow: ResolvedWorkflow = {
-      afterAnalyst: resolveAgents(workflow.slots.afterAnalyst),
-      afterArchitect: resolveAgents(workflow.slots.afterArchitect),
-      afterQa: resolveAgents(workflow.slots.afterQa),
+      slots: Object.fromEntries(
+        BACKBONE_STAGES.map((stage) => [stage, resolveAgents(workflow.slots[stage] ?? [])]),
+      ) as Partial<Record<BackboneStage, AgentDefinition[]>>,
     };
     if (this.status === "done") {
       this.eventBus = new RunEventBus();
