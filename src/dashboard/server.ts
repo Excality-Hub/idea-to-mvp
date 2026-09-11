@@ -121,16 +121,18 @@ export function createAgentHandlers(
 export function createWorkflowHandlers(
   workflowStore: WorkflowStore,
   agentStore: AgentStore,
-): { list: express.RequestHandler; create: express.RequestHandler; remove: express.RequestHandler } {
-  const list: express.RequestHandler = (_req, res) => {
-    res.json(workflowStore.list());
-  };
-
-  const create: express.RequestHandler = (req, res) => {
-    const parsed = WorkflowInputSchema.safeParse(req.body);
+): {
+  list: express.RequestHandler;
+  create: express.RequestHandler;
+  update: express.RequestHandler;
+  remove: express.RequestHandler;
+} {
+  function validateWorkflowInput(
+    body: unknown,
+  ): { ok: true; data: { name: string; slots: WorkflowDefinition["slots"] } } | { ok: false; error: string } {
+    const parsed = WorkflowInputSchema.safeParse(body);
     if (!parsed.success) {
-      res.status(400).json({ error: parsed.error.message });
-      return;
+      return { ok: false, error: parsed.error.message };
     }
     const allIds = [
       ...parsed.data.slots.afterAnalyst,
@@ -139,16 +141,47 @@ export function createWorkflowHandlers(
     ];
     const unknownId = allIds.find((id) => !agentStore.get(id));
     if (unknownId) {
-      res.status(400).json({ error: `Unknown agent id: ${unknownId}` });
-      return;
+      return { ok: false, error: `Unknown agent id: ${unknownId}` };
     }
     if (new Set(allIds).size !== allIds.length) {
-      res.status(400).json({ error: "An agent may appear at most once across a workflow's slots" });
+      return { ok: false, error: "An agent may appear at most once across a workflow's slots" };
+    }
+    return { ok: true, data: parsed.data };
+  }
+
+  const list: express.RequestHandler = (_req, res) => {
+    res.json(workflowStore.list());
+  };
+
+  const create: express.RequestHandler = (req, res) => {
+    const validation = validateWorkflowInput(req.body);
+    if (!validation.ok) {
+      res.status(400).json({ error: validation.error });
       return;
     }
-    const workflow: WorkflowDefinition = { id: randomUUID(), ...parsed.data, createdAt: new Date().toISOString() };
+    const workflow: WorkflowDefinition = { id: randomUUID(), ...validation.data, createdAt: new Date().toISOString() };
     workflowStore.create(workflow);
     res.status(201).json(workflow);
+  };
+
+  const update: express.RequestHandler = (req, res) => {
+    if (req.params.id === DEFAULT_WORKFLOW_ID) {
+      res.status(400).json({ error: "Cannot edit the default workflow" });
+      return;
+    }
+    const existing = workflowStore.get(req.params.id);
+    if (!existing) {
+      res.status(404).json({ error: "Workflow not found" });
+      return;
+    }
+    const validation = validateWorkflowInput(req.body);
+    if (!validation.ok) {
+      res.status(400).json({ error: validation.error });
+      return;
+    }
+    const workflow: WorkflowDefinition = { ...existing, ...validation.data };
+    workflowStore.update(req.params.id, workflow);
+    res.status(200).json(workflow);
   };
 
   const remove: express.RequestHandler = (req, res) => {
@@ -160,7 +193,7 @@ export function createWorkflowHandlers(
     res.status(204).end();
   };
 
-  return { list, create, remove };
+  return { list, create, update, remove };
 }
 
 export function createDashboardServer(
@@ -186,6 +219,7 @@ export function createDashboardServer(
   const workflowHandlers = createWorkflowHandlers(workflowStore, agentStore);
   app.get("/api/workflows", workflowHandlers.list);
   app.post("/api/workflows", workflowHandlers.create);
+  app.put("/api/workflows/:id", workflowHandlers.update);
   app.delete("/api/workflows/:id", workflowHandlers.remove);
   return app;
 }

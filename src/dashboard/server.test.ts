@@ -329,6 +329,95 @@ describe("createWorkflowHandlers", () => {
     expect(workflowStore.delete).toHaveBeenCalledWith("with-review");
     expect(res.status).toHaveBeenCalledWith(204);
   });
+
+  it("updates a non-default workflow and returns 200", () => {
+    const agentStore = makeAgentStore([
+      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const existing = {
+      id: "w1",
+      name: "Old",
+      slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const workflowStore = makeWorkflowStore([existing]);
+    const { update } = createWorkflowHandlers(workflowStore, agentStore);
+    const res = makeFakeRes();
+
+    update(
+      {
+        params: { id: "w1" },
+        body: { name: "New", slots: { afterAnalyst: ["a"], afterArchitect: [], afterQa: [] } },
+      } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.update).toHaveBeenCalledWith(
+      "w1",
+      expect.objectContaining({
+        id: "w1",
+        name: "New",
+        slots: { afterAnalyst: ["a"], afterArchitect: [], afterQa: [] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("rejects editing the default workflow with 400", () => {
+    const workflowStore = makeWorkflowStore();
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    update(
+      { params: { id: "default" }, body: { name: "X", slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.update).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("returns 404 when the workflow id doesn't exist", () => {
+    const workflowStore = makeWorkflowStore([]);
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    update(
+      { params: { id: "missing" }, body: { name: "X", slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.update).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it("returns 400 when the updated slots reference an unknown agent id", () => {
+    const existing = {
+      id: "w1",
+      name: "Old",
+      slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const workflowStore = makeWorkflowStore([existing]);
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    update(
+      {
+        params: { id: "w1" },
+        body: { name: "New", slots: { afterAnalyst: ["missing"], afterArchitect: [], afterQa: [] } },
+      } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.update).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
 });
 
 describe("createRunHandlers with a workflowId", () => {
