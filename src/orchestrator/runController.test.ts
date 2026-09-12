@@ -2,7 +2,37 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentStoppedError } from "../claudeAgent.js";
 import { RunEventBus } from "./events.js";
 import { RunController, type RunControllerConfig } from "./runController.js";
-import type { StageName } from "./types.js";
+import type { WorkflowDefinition, StageName } from "./types.js";
+import type { AgentDefinition } from "../agents/types.js";
+import type { AgentStore } from "../agents/agentStore.js";
+import type { WorkflowStore } from "./workflowStore.js";
+
+function makeAgentStore(agents: AgentDefinition[] = []): AgentStore {
+  return {
+    list: () => agents,
+    get: (id) => agents.find((a) => a.id === id),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  };
+}
+
+function makeWorkflowStore(workflows: WorkflowDefinition[]): WorkflowStore {
+  return {
+    list: () => workflows,
+    get: (id) => workflows.find((w) => w.id === id),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  };
+}
+
+const DEFAULT_WORKFLOW: WorkflowDefinition = {
+  id: "default",
+  name: "Default",
+  slots: {},
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
 
 function waitForStage(bus: RunEventBus, stage: StageName, status: string): Promise<void> {
   return new Promise((resolve) => {
@@ -58,11 +88,14 @@ function makeConfig(): RunControllerConfig {
     }),
     developer: vi.fn().mockResolvedValue({ output: { prTitle: "t", prBody: "b" }, usage }),
     qa: vi.fn().mockResolvedValue({ output: { verdict: "pass", findings: [] }, usage }),
+    custom: vi.fn(),
   };
   return {
     owner: "org",
     starterDir: "/templates/starter",
     githubToken: "test-token",
+    agentStore: makeAgentStore(),
+    workflowStore: makeWorkflowStore([DEFAULT_WORKFLOW]),
     deps: {
       github: github as never,
       deploy: deploy as never,
@@ -155,5 +188,140 @@ describe("RunController", () => {
     expect(controller.eventBus).not.toBe(firstBus);
     expect(busReplaced).toHaveBeenCalledTimes(1);
     await controller.getRunPromise();
+  });
+
+  it("throws when starting with an unknown workflow id", () => {
+    const controller = new RunController(makeConfig());
+
+    expect(() => controller.start("Build a todo app", "nope")).toThrow("Unknown workflow: nope");
+  });
+
+  it("throws when a workflow references an unknown agent id", () => {
+    const config = makeConfig();
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      {
+        id: "broken",
+        name: "Broken",
+        slots: { analyst: ["missing-agent"] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    const controller = new RunController(config);
+
+    expect(() => controller.start("Build a todo app", "broken")).toThrow("Unknown agent: missing-agent");
+  });
+
+  it("does not swap the event bus when a second start() fails validation after a prior run completed", async () => {
+    const config = makeConfig();
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      {
+        id: "broken",
+        name: "Broken",
+        slots: { analyst: ["missing-agent"] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app");
+    await controller.getRunPromise();
+    expect(controller.getStatus()).toBe("done");
+
+    const busBeforeSecondStart = controller.eventBus;
+    expect(() => controller.start("Build a todo app", "broken")).toThrow("Unknown agent: missing-agent");
+    expect(controller.eventBus).toBe(busBeforeSecondStart);
+  });
+
+  it("exposes the resolved stage order via getPlan()", async () => {
+    const controller = new RunController(makeConfig());
+
+    controller.start("Build a todo app");
+    await controller.getRunPromise();
+
+    expect(controller.getPlan()).toEqual([
+      "create_repo",
+      "analyst",
+      "architect",
+      "open_issue",
+      "developer",
+      "open_pr",
+      "qa",
+      "post_review",
+      "merge",
+      "deploy",
+      "tracing_pack",
+    ]);
+  });
+
+  it("runs a custom agent inserted by a non-default workflow", async () => {
+    const config = makeConfig();
+    const securityReviewer: AgentDefinition = {
+      id: "sec-1",
+      name: "Security Reviewer",
+      instructions: "Look for auth bypass issues.",
+      repoAccess: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    config.agentStore = makeAgentStore([securityReviewer]);
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      {
+        id: "with-review",
+        name: "With security review",
+        slots: { analyst: ["sec-1"] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    vi.mocked(config.deps.agents.custom).mockResolvedValue({
+      output: { text: "No issues found." },
+      usage: { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, costUsd: 0.001 },
+    });
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app", "with-review");
+    const outcome = await controller.getRunPromise();
+
+    expect(outcome?.status).toBe("deployed");
+    expect(controller.getPlan()).toContain("custom:sec-1");
+    expect(config.deps.agents.custom).toHaveBeenCalled();
+  });
+
+  it("runs a custom agent inserted after a backbone stage other than analyst/architect/qa", async () => {
+    const config = makeConfig();
+    const auditor: AgentDefinition = {
+      id: "auditor-1",
+      name: "Deploy Auditor",
+      instructions: "Double-check the deploy result.",
+      repoAccess: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    config.agentStore = makeAgentStore([auditor]);
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      {
+        id: "with-audit",
+        name: "With deploy audit",
+        slots: { deploy: ["auditor-1"] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    vi.mocked(config.deps.agents.custom).mockResolvedValue({
+      output: { text: "Deploy looks fine." },
+      usage: { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, costUsd: 0.001 },
+    });
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app", "with-audit");
+    const outcome = await controller.getRunPromise();
+
+    expect(outcome.status).toBe("deployed");
+    expect(config.deps.agents.custom).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "auditor-1" }),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });
