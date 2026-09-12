@@ -54,6 +54,40 @@ describe("AgentsView", () => {
     });
   });
 
+  it("analyzes the instructions text on demand without calling the network", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) }));
+    const user = userEvent.setup();
+
+    render(<AgentsView />);
+    await waitFor(() => expect(screen.queryByText("Loading…")).not.toBeInTheDocument());
+
+    await user.type(screen.getByLabelText("Instructions"), "Add a unit test for the parseDate function.");
+    await user.click(screen.getByRole("button", { name: "Analyze instructions" }));
+
+    expect(screen.getByText(/complexity: low/i)).toBeInTheDocument();
+    expect(screen.getByText(/cost tier: low/i)).toBeInTheDocument();
+    expect(screen.getByText(/no risk flags detected/i)).toBeInTheDocument();
+  });
+
+  it("flags unbounded scope and repo access risk when analyzing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) }));
+    const user = userEvent.setup();
+
+    render(<AgentsView />);
+    await waitFor(() => expect(screen.queryByText("Loading…")).not.toBeInTheDocument());
+
+    await user.type(
+      screen.getByLabelText("Instructions"),
+      "If a file has no tests, write tests for it. Otherwise, refactor it for clarity.",
+    );
+    await user.click(screen.getByLabelText(/repo read access/i));
+    await user.click(screen.getByRole("button", { name: "Analyze instructions" }));
+
+    expect(
+      screen.getByText(/repo access combined with complex instructions can multiply real token usage/i),
+    ).toBeInTheDocument();
+  });
+
   it("deletes an agent when its delete button is clicked", async () => {
     const fetchMock = vi
       .fn()

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAgents } from "@/hooks/useAgents";
+import { analyzeInstructions, type InstructionAnalysis } from "@/lib/instructionAnalysis";
 import type { AgentDefinition } from "@/types";
 
 export function AgentsView() {
@@ -13,6 +14,7 @@ export function AgentsView() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | undefined>(undefined);
   const [rowError, setRowError] = useState<{ id: string; message: string } | undefined>(undefined);
+  const [analysis, setAnalysis] = useState<InstructionAnalysis | undefined>(undefined);
 
   async function handleCreate() {
     setFormError(undefined);
@@ -31,6 +33,7 @@ export function AgentsView() {
       setName("");
       setInstructions("");
       setRepoAccess(false);
+      setAnalysis(undefined);
       refetch();
     } finally {
       setSubmitting(false);
@@ -82,17 +85,48 @@ export function AgentsView() {
               className="rounded-lg border border-border bg-background p-2 text-sm"
               style={{ minHeight: 80 }}
               value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
+              onChange={(event) => {
+                setInstructions(event.target.value);
+                setAnalysis(undefined);
+              }}
             />
           </div>
           <label className="flex items-center gap-2 text-sm text-foreground">
             <input
               type="checkbox"
               checked={repoAccess}
-              onChange={(event) => setRepoAccess(event.target.checked)}
+              onChange={(event) => {
+                setRepoAccess(event.target.checked);
+                setAnalysis(undefined);
+              }}
             />
             Give this agent repo read access
           </label>
+          <Button
+            variant="outline"
+            onClick={() => setAnalysis(analyzeInstructions(instructions, repoAccess))}
+            disabled={!instructions.trim()}
+            className="w-fit"
+          >
+            Analyze instructions
+          </Button>
+          {analysis && (
+            <div className="flex flex-col gap-1 rounded-lg border border-border bg-muted/50 p-3 text-sm">
+              <p>~{analysis.tokenEstimate} tokens · {analysis.wordCount} words</p>
+              <p>Complexity: {analysis.complexityLabel}</p>
+              <p>Clarity: {analysis.clarityScore}/100</p>
+              <p>Cost tier: {analysis.costTier}</p>
+              {analysis.riskFlags.length === 0 ? (
+                <p className="text-muted-foreground">No risk flags detected.</p>
+              ) : (
+                <ul className="list-disc pl-5 text-muted-foreground">
+                  {analysis.riskFlags.map((flag) => (
+                    <li key={flag}>{flag}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {formError && <p className="text-sm text-destructive">{formError}</p>}
           <Button
             onClick={handleCreate}
