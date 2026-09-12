@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentStoppedError } from "../claudeAgent.js";
 import { RunEventBus } from "./events.js";
-import { runOrchestrator, type OrchestratorDeps, type OrchestratorParams } from "./runOrchestrator.js";
-import type { ResolvedWorkflow, RunEvent } from "./types.js";
+import { BACKBONE_STEPS, runOrchestrator, type OrchestratorDeps, type OrchestratorParams } from "./runOrchestrator.js";
+import { BACKBONE_STAGES, type ResolvedWorkflow, type RunEvent } from "./types.js";
 
 const fakeUsage = {
   inputTokens: 100,
@@ -532,5 +532,11 @@ describe("runOrchestrator", () => {
     expect(cloneCallsAtCustomDone).toBe(0);
     // developer's own clone-once guard still fires later in the same run.
     expect(deps.git.cloneRepo).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("BACKBONE_STEPS / BACKBONE_STAGES invariant", () => {
+  it("BACKBONE_STEPS' step names are exactly the splice-eligible BACKBONE_STAGES, in the same order", () => {
+    expect(BACKBONE_STEPS.map((step) => step.name)).toEqual(BACKBONE_STAGES);
   });
 });

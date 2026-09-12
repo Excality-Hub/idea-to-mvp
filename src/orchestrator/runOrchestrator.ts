@@ -117,7 +117,7 @@ interface StageStep {
   ): Promise<void>;
 }
 
-const BACKBONE_STEPS: StageStep[] = [
+export const BACKBONE_STEPS: StageStep[] = [
   {
     name: "create_repo",
     abortable: ABORTABLE_STAGES.includes("create_repo"),

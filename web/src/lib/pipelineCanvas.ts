@@ -76,5 +76,7 @@ export function insertAgent(slots: SlotsState, afterStage: BackboneStage, index:
 
 export function removeAgent(slots: SlotsState, afterStage: BackboneStage, agentId: string): SlotsState {
   const current = slots[afterStage] ?? [];
-  return { ...slots, [afterStage]: current.filter((id) => id !== agentId) };
+  const next = current.filter((id) => id !== agentId);
+  const { [afterStage]: _removed, ...rest } = slots;
+  return next.length > 0 ? { ...rest, [afterStage]: next } : rest;
 }

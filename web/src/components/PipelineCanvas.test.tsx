@@ -3,16 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PipelineCanvas } from "./PipelineCanvas";
 
-// jsdom's synthetic mouse events leave `event.view` null, which crashes d3-zoom's
-// drag-disable helper (used internally by @xyflow/react's pane pan/zoom) when a
-// click on a node bubbles up to the canvas. Real browsers always populate
-// `event.view`, so this is a test-environment-only artifact, not a product bug.
-window.addEventListener("error", (event) => {
-  if (event.error instanceof TypeError && /reading 'document'/.test(event.error.message)) {
-    event.preventDefault();
-  }
-});
-
 const agentA = { id: "a", name: "Agent A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" };
 const agentB = { id: "b", name: "Agent B", instructions: "do b", repoAccess: true, createdAt: "2026-01-01T00:00:00.000Z" };
 
@@ -139,6 +129,29 @@ describe("PipelineCanvas", () => {
     await user.click(screen.getByRole("button", { name: "Save pipeline" }));
 
     await waitFor(() => expect(screen.getByText("boom")).toBeInTheDocument());
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a fallback error and does not call onSaved when the save request rejects", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/api/agents") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([agentA, agentB]) });
+      }
+      return Promise.reject(new Error("network down"));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onSaved = vi.fn();
+    const user = userEvent.setup();
+
+    render(<PipelineCanvas onSaved={onSaved} onCancel={() => {}} />);
+    await waitFor(() => expect(screen.getByLabelText("Name")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Name"), "X");
+
+    await user.click(screen.getByRole("button", { name: "Save pipeline" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Could not reach the server. Check your connection and try again.")).toBeInTheDocument(),
+    );
     expect(onSaved).not.toHaveBeenCalled();
   });
 

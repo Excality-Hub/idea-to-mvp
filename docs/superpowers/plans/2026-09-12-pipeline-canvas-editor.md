@@ -19,6 +19,10 @@
 - The "End" node is always auto-rendered as the final node — never user-created or configured.
 - No migration of existing saved pipeline data — the old `{afterAnalyst, afterArchitect, afterQa}` shape is abandoned outright.
 - `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities`, and `web/src/lib/pipelineEditor.ts`/`web/src/components/PipelineEditor.tsx` (plus their tests) are removed entirely.
+- `tracing_pack` is not a valid splice point (10-entry `BACKBONE_STAGES`,
+  not 11) — see the spec's Non-goals correction note. Any task text below
+  this point that still says 11 insertion points or lists `tracing_pack`
+  as a `BACKBONE_STAGES` member predates this finding.
 
 ---
 

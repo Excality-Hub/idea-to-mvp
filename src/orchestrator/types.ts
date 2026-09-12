@@ -30,6 +30,10 @@ export interface RunEvent {
 
 export const ABORTABLE_STAGES: StageName[] = ["analyst", "architect", "developer", "qa"];
 
+// 10, not 11 — tracing_pack runs via commitTracingPack() outside the
+// BACKBONE_STEPS loop, on every exit path, so a custom agent spliced
+// after it would never execute. See runOrchestrator.ts's BACKBONE_STEPS
+// and the invariant test in runOrchestrator.test.ts.
 export const BACKBONE_STAGES = [
   "create_repo",
   "analyst",

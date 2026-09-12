@@ -57,6 +57,17 @@ backbone itself is out of scope; what's actually being generalized is
   changes incompatibly (3 named keys → one array per backbone stage);
   existing saved pipeline JSON is discarded/left to be recreated by hand,
   since this is pre-production dev data.
+- **`tracing_pack` is not a valid splice point, despite being one of the 11
+  fixed backbone stages.** Discovered during implementation: `tracing_pack`
+  runs via a separate finalization call (`commitTracingPack()`) on every
+  exit path, outside the sequential step loop this design's splicing
+  mechanism hooks into — a custom agent spliced in "after tracing_pack"
+  would silently never execute. `BACKBONE_STAGES` (backend and frontend)
+  is therefore 10 entries, not 11; `tracing_pack` still renders as a normal
+  read-only backbone box on the canvas, just with no insertion point after
+  it. Any code block elsewhere in this document showing an 11-entry
+  `BACKBONE_STAGES` or describing a "trailing insertion point after
+  tracing_pack" predates this finding and is superseded by this note.
 - **`@dnd-kit` and `pipelineEditor.ts` are removed entirely** — insertion
   uses native HTML5 drag-and-drop instead, which is simulable in jsdom
   tests (unlike `@dnd-kit`'s pointer-based gestures, per the prior spec's

@@ -67,13 +67,18 @@ describe("insertAgent", () => {
 
   it("does not mutate other stages", () => {
     const slots: SlotsState = { analyst: ["a"], qa: ["b"] };
+    const original = { analyst: ["a"], qa: ["b"] };
     expect(insertAgent(slots, "qa", 1, "a")).toEqual({ analyst: ["a"], qa: ["b", "a"] });
+    expect(slots).toEqual(original);
   });
 });
 
 describe("removeAgent", () => {
   it("removes an agent from its stage", () => {
-    expect(removeAgent({ analyst: ["a", "b"] }, "analyst", "a")).toEqual({ analyst: ["b"] });
+    const slots: SlotsState = { analyst: ["a", "b"] };
+    expect(removeAgent(slots, "analyst", "a")).toEqual({ analyst: ["b"] });
+    expect(removeAgent({ analyst: ["a"] }, "analyst", "a")).toEqual({});
+    expect(slots).toEqual({ analyst: ["a", "b"] });
   });
 
   it("is a no-op when the agent isn't in that stage", () => {

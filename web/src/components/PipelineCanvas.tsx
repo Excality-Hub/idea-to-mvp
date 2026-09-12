@@ -14,7 +14,7 @@ import {
   type SlotsState,
 } from "@/lib/pipelineCanvas";
 import { cn } from "@/lib/utils";
-import type { AgentDefinition, BackboneStage, WorkflowDefinition } from "@/types";
+import { BACKBONE_STAGES, type AgentDefinition, type BackboneStage, type WorkflowDefinition } from "@/types";
 
 const AGENT_DND_TYPE = "application/x-agent-id";
 
@@ -128,7 +128,12 @@ function PaletteCard({ agent }: { agent: AgentDefinition }) {
 export function PipelineCanvas({ initial, onSaved, onCancel }: PipelineCanvasProps) {
   const { agents, error: agentsError } = useAgents();
   const [name, setName] = useState(initial?.name ?? "");
-  const [slots, setSlots] = useState<SlotsState>(initial?.slots ?? {});
+  const [slots, setSlots] = useState<SlotsState>(() => {
+    const seed = initial?.slots ?? {};
+    return Object.fromEntries(
+      Object.entries(seed).filter(([stage]) => (BACKBONE_STAGES as readonly string[]).includes(stage)),
+    ) as SlotsState;
+  });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | undefined>(undefined);
 
