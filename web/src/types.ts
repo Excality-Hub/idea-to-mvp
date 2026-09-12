@@ -49,6 +49,20 @@ export const STAGE_ORDER: StageName[] = [
   "tracing_pack",
 ];
 
+export const BACKBONE_STAGES = [
+  "create_repo",
+  "analyst",
+  "architect",
+  "open_issue",
+  "developer",
+  "open_pr",
+  "qa",
+  "post_review",
+  "merge",
+  "deploy",
+] as const;
+export type BackboneStage = (typeof BACKBONE_STAGES)[number];
+
 export const STAGE_LABELS: Record<Exclude<StageName, `custom:${string}`>, string> = {
   create_repo: "Create repo",
   analyst: "Analyst",
@@ -86,10 +100,6 @@ export interface AgentDefinition {
 export interface WorkflowDefinition {
   id: string;
   name: string;
-  slots: {
-    afterAnalyst: string[];
-    afterArchitect: string[];
-    afterQa: string[];
-  };
+  slots: Partial<Record<BackboneStage, string[]>>;
   createdAt: string;
 }
