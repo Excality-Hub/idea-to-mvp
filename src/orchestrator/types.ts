@@ -41,7 +41,6 @@ export const BACKBONE_STAGES = [
   "post_review",
   "merge",
   "deploy",
-  "tracing_pack",
 ] as const;
 export type BackboneStage = (typeof BACKBONE_STAGES)[number];
 

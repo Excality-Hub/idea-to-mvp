@@ -343,6 +343,19 @@ describe("createWorkflowHandlers", () => {
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
+  it("returns 400 when the slot key is tracing_pack, since nothing can run after the pipeline's final step", () => {
+    const { create } = createWorkflowHandlers(makeWorkflowStore(), makeAgentStore());
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "Bad", slots: { tracing_pack: [] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
   it("rejects deleting the default workflow with 400", () => {
     const workflowStore = makeWorkflowStore();
     const { remove } = createWorkflowHandlers(workflowStore, makeAgentStore());
