@@ -18,7 +18,7 @@ describe("createWorkflowStore", () => {
     expect(workflows[0]).toMatchObject({
       id: DEFAULT_WORKFLOW_ID,
       name: "Default",
-      slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] },
+      slots: {},
     });
   });
 
@@ -27,7 +27,7 @@ describe("createWorkflowStore", () => {
     const workflow = {
       id: "with-review",
       name: "With security review",
-      slots: { afterAnalyst: [], afterArchitect: ["sec-1"], afterQa: [] },
+      slots: { architect: ["sec-1"] },
       createdAt: "2026-09-10T00:00:00.000Z",
     };
 

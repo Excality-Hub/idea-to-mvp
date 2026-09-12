@@ -55,4 +55,27 @@ describe("createJsonStore", () => {
     const reopened = createJsonStore<Widget>(filePath, []);
     expect(reopened.list()).toEqual([{ id: "b", name: "B" }]);
   });
+
+  it("update() replaces an item by id and persists the change", () => {
+    const filePath = tempFile();
+    const store = createJsonStore<Widget>(filePath, [
+      { id: "a", name: "A" },
+      { id: "b", name: "B" },
+    ]);
+
+    store.update("a", { id: "a", name: "A2" });
+
+    expect(store.list()).toEqual([{ id: "a", name: "A2" }, { id: "b", name: "B" }]);
+    const reopened = createJsonStore<Widget>(filePath, []);
+    expect(reopened.list()).toEqual([{ id: "a", name: "A2" }, { id: "b", name: "B" }]);
+  });
+
+  it("update() is a no-op when the id doesn't exist", () => {
+    const filePath = tempFile();
+    const store = createJsonStore<Widget>(filePath, [{ id: "a", name: "A" }]);
+
+    store.update("missing", { id: "missing", name: "X" });
+
+    expect(store.list()).toEqual([{ id: "a", name: "A" }]);
+  });
 });

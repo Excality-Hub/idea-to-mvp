@@ -160,6 +160,7 @@ function makeAgentStore(agents: AgentDefinition[] = []): AgentStore {
     list: vi.fn(() => agents),
     get: (id) => agents.find((a) => a.id === id),
     create: vi.fn((item) => agents.push(item)),
+    update: vi.fn(),
     delete: vi.fn(),
   };
 }
@@ -169,6 +170,7 @@ function makeWorkflowStore(workflows: WorkflowDefinition[] = []): WorkflowStore 
     list: vi.fn(() => workflows),
     get: (id) => workflows.find((w) => w.id === id),
     create: vi.fn((item) => workflows.push(item)),
+    update: vi.fn(),
     delete: vi.fn(),
   };
 }
@@ -230,7 +232,7 @@ describe("createAgentHandlers", () => {
       { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
     ]);
     const workflowStore = makeWorkflowStore([
-      { id: "w1", name: "W1", slots: { afterAnalyst: ["a"], afterArchitect: [], afterQa: [] }, createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "w1", name: "W1", slots: { analyst: ["a"] }, createdAt: "2026-01-01T00:00:00.000Z" },
     ]);
     const { remove } = createAgentHandlers(agentStore, workflowStore);
     const res = makeFakeRes();
@@ -245,7 +247,7 @@ describe("createAgentHandlers", () => {
 describe("createWorkflowHandlers", () => {
   it("lists workflows", () => {
     const workflowStore = makeWorkflowStore([
-      { id: "default", name: "Default", slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] }, createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "default", name: "Default", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" },
     ]);
     const { list } = createWorkflowHandlers(workflowStore, makeAgentStore());
     const res = makeFakeRes();
@@ -264,13 +266,13 @@ describe("createWorkflowHandlers", () => {
     const res = makeFakeRes();
 
     create(
-      { body: { name: "With A", slots: { afterAnalyst: ["a"], afterArchitect: [], afterQa: [] } } } as never,
+      { body: { name: "With A", slots: { analyst: ["a"] } } } as never,
       res as never,
       (() => {}) as never,
     );
 
     expect(workflowStore.create).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "With A", slots: { afterAnalyst: ["a"], afterArchitect: [], afterQa: [] } }),
+      expect.objectContaining({ name: "With A", slots: { analyst: ["a"] } }),
     );
     expect(res.status).toHaveBeenCalledWith(201);
   });
@@ -280,7 +282,7 @@ describe("createWorkflowHandlers", () => {
     const res = makeFakeRes();
 
     create(
-      { body: { name: "Bad", slots: { afterAnalyst: ["missing"], afterArchitect: [], afterQa: [] } } } as never,
+      { body: { name: "Bad", slots: { analyst: ["missing"] } } } as never,
       res as never,
       (() => {}) as never,
     );
@@ -297,12 +299,60 @@ describe("createWorkflowHandlers", () => {
     const res = makeFakeRes();
 
     create(
-      { body: { name: "Dup", slots: { afterAnalyst: ["a"], afterArchitect: ["a"], afterQa: [] } } } as never,
+      { body: { name: "Dup", slots: { analyst: ["a"], architect: ["a"] } } } as never,
       res as never,
       (() => {}) as never,
     );
 
     expect(workflowStore.create).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("creates a workflow with a custom agent after a stage outside the old fixed three", () => {
+    const agentStore = makeAgentStore([
+      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const workflowStore = makeWorkflowStore();
+    const { create } = createWorkflowHandlers(workflowStore, agentStore);
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "After repo creation", slots: { create_repo: ["a"] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "After repo creation", slots: { create_repo: ["a"] } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("returns 400 when a slot key isn't one of the fixed backbone stages", () => {
+    const workflowStore = makeWorkflowStore();
+    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "Bad stage", slots: { not_a_stage: [] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.create).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("returns 400 when the slot key is tracing_pack, since nothing can run after the pipeline's final step", () => {
+    const { create } = createWorkflowHandlers(makeWorkflowStore(), makeAgentStore());
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "Bad", slots: { tracing_pack: [] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
@@ -326,6 +376,95 @@ describe("createWorkflowHandlers", () => {
 
     expect(workflowStore.delete).toHaveBeenCalledWith("with-review");
     expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it("updates a non-default workflow and returns 200", () => {
+    const agentStore = makeAgentStore([
+      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const existing = {
+      id: "w1",
+      name: "Old",
+      slots: {},
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const workflowStore = makeWorkflowStore([existing]);
+    const { update } = createWorkflowHandlers(workflowStore, agentStore);
+    const res = makeFakeRes();
+
+    update(
+      {
+        params: { id: "w1" },
+        body: { name: "New", slots: { analyst: ["a"] } },
+      } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.update).toHaveBeenCalledWith(
+      "w1",
+      expect.objectContaining({
+        id: "w1",
+        name: "New",
+        slots: { analyst: ["a"] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("rejects editing the default workflow with 400", () => {
+    const workflowStore = makeWorkflowStore();
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    update(
+      { params: { id: "default" }, body: { name: "X", slots: {} } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.update).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("returns 404 when the workflow id doesn't exist", () => {
+    const workflowStore = makeWorkflowStore([]);
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    update(
+      { params: { id: "missing" }, body: { name: "X", slots: {} } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.update).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it("returns 400 when the updated slots reference an unknown agent id", () => {
+    const existing = {
+      id: "w1",
+      name: "Old",
+      slots: {},
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const workflowStore = makeWorkflowStore([existing]);
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    update(
+      {
+        params: { id: "w1" },
+        body: { name: "New", slots: { analyst: ["missing"] } },
+      } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.update).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
   });
 });
 

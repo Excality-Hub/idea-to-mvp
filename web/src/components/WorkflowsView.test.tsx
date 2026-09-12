@@ -4,20 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkflowsView } from "./WorkflowsView";
 import type { EventsByStage } from "@/lib/runEvents";
 
-// jsdom's synthetic mouse events leave `event.view` null, which crashes d3-zoom's
-// drag-disable helper (used internally by @xyflow/react's pane pan/zoom) when a
-// click on a node bubbles up to the canvas. Real browsers always populate
-// `event.view`, so this is a test-environment-only artifact, not a product bug.
-window.addEventListener("error", (event) => {
-  if (event.error instanceof TypeError && /reading 'document'/.test(event.error.message)) {
-    event.preventDefault();
-  }
-});
-
 const DEFAULT_WORKFLOW = {
   id: "default",
   name: "Default",
-  slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] },
+  slots: {},
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 

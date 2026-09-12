@@ -49,6 +49,24 @@ export const STAGE_ORDER: StageName[] = [
   "tracing_pack",
 ];
 
+// 10, not 11 — tracing_pack runs via commitTracingPack() outside the
+// BACKBONE_STEPS loop, on every exit path, so a custom agent spliced
+// after it would never execute. See runOrchestrator.ts's BACKBONE_STEPS
+// and the invariant test in runOrchestrator.test.ts.
+export const BACKBONE_STAGES = [
+  "create_repo",
+  "analyst",
+  "architect",
+  "open_issue",
+  "developer",
+  "open_pr",
+  "qa",
+  "post_review",
+  "merge",
+  "deploy",
+] as const;
+export type BackboneStage = (typeof BACKBONE_STAGES)[number];
+
 export const STAGE_LABELS: Record<Exclude<StageName, `custom:${string}`>, string> = {
   create_repo: "Create repo",
   analyst: "Analyst",
@@ -86,10 +104,6 @@ export interface AgentDefinition {
 export interface WorkflowDefinition {
   id: string;
   name: string;
-  slots: {
-    afterAnalyst: string[];
-    afterArchitect: string[];
-    afterQa: string[];
-  };
+  slots: Partial<Record<BackboneStage, string[]>>;
   createdAt: string;
 }

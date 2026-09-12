@@ -5,6 +5,7 @@ export interface JsonStore<T extends { id: string }> {
   list(): T[];
   get(id: string): T | undefined;
   create(item: T): void;
+  update(id: string, item: T): void;
   delete(id: string): void;
 }
 
@@ -27,6 +28,7 @@ export function createJsonStore<T extends { id: string }>(filePath: string, seed
     list: () => readAll(),
     get: (id) => readAll().find((item) => item.id === id),
     create: (item) => writeAll([...readAll(), item]),
+    update: (id, item) => writeAll(readAll().map((existing) => (existing.id === id ? item : existing))),
     delete: (id) => writeAll(readAll().filter((item) => item.id !== id)),
   };
 }

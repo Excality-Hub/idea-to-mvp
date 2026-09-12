@@ -15,7 +15,13 @@ import type {
 import type { DeployClient } from "../deploy/types.js";
 import { formatTracingPackMarkdown, type TracingPackEntry } from "./tracingPack.js";
 import { RunEventBus } from "./events.js";
-import { ABORTABLE_STAGES, type ResolvedWorkflow, type RunEvent, type StageName } from "./types.js";
+import {
+  ABORTABLE_STAGES,
+  type BackboneStage,
+  type ResolvedWorkflow,
+  type RunEvent,
+  type StageName,
+} from "./types.js";
 import { AgentStoppedError, type AgentUsage } from "../claudeAgent.js";
 import type { AgentDefinition } from "../agents/types.js";
 import type { runCustomAgent } from "../agents/custom.js";
@@ -111,7 +117,7 @@ interface StageStep {
   ): Promise<void>;
 }
 
-const BACKBONE_STEPS: StageStep[] = [
+export const BACKBONE_STEPS: StageStep[] = [
   {
     name: "create_repo",
     abortable: ABORTABLE_STAGES.includes("create_repo"),
@@ -358,13 +364,8 @@ export function buildStageSteps(resolvedWorkflow: ResolvedWorkflow): StageStep[]
   const steps: StageStep[] = [];
   for (const step of BACKBONE_STEPS) {
     steps.push(step);
-    if (step.name === "analyst") {
-      steps.push(...resolvedWorkflow.afterAnalyst.map(buildCustomStep));
-    } else if (step.name === "architect") {
-      steps.push(...resolvedWorkflow.afterArchitect.map(buildCustomStep));
-    } else if (step.name === "qa") {
-      steps.push(...resolvedWorkflow.afterQa.map(buildCustomStep));
-    }
+    const afterThisStage = resolvedWorkflow.slots[step.name as BackboneStage] ?? [];
+    steps.push(...afterThisStage.map(buildCustomStep));
   }
   return steps;
 }
