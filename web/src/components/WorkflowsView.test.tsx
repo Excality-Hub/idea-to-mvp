@@ -17,7 +17,7 @@ window.addEventListener("error", (event) => {
 const DEFAULT_WORKFLOW = {
   id: "default",
   name: "Default",
-  slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] },
+  slots: {},
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 

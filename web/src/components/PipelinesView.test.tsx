@@ -6,7 +6,7 @@ import { PipelinesView } from "./PipelinesView";
 const defaultWorkflow = {
   id: "default",
   name: "Default",
-  slots: { afterAnalyst: [], afterArchitect: [], afterQa: [] },
+  slots: {},
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 const customWorkflow = { ...defaultWorkflow, id: "custom-1", name: "Custom" };

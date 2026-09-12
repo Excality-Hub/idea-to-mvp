@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { PipelineEditor } from "@/components/PipelineEditor";
+import { PipelineCanvas } from "@/components/PipelineCanvas";
 import { useWorkflows } from "@/hooks/useWorkflows";
 import type { WorkflowDefinition } from "@/types";
 
@@ -21,11 +21,11 @@ export function PipelinesView() {
   }
 
   if (editorState.mode === "create") {
-    return <PipelineEditor onSaved={handleSaved} onCancel={() => setEditorState({ mode: "list" })} />;
+    return <PipelineCanvas onSaved={handleSaved} onCancel={() => setEditorState({ mode: "list" })} />;
   }
   if (editorState.mode === "edit") {
     return (
-      <PipelineEditor
+      <PipelineCanvas
         initial={editorState.workflow}
         onSaved={handleSaved}
         onCancel={() => setEditorState({ mode: "list" })}
