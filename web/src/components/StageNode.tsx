@@ -2,7 +2,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
 import { STAGE_STATUS_CONFIG } from "@/components/status";
 import { cn } from "@/lib/utils";
-import { ABORTABLE_STAGES } from "@/types";
+import { isAbortableStage } from "@/types";
 import { STAGE_NODE_WIDTH, type StageFlowNode } from "@/lib/workflowGraph";
 
 async function postRunAction(path: string): Promise<void> {
@@ -13,7 +13,7 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
   const { stage, label, status, latestEvent } = data;
   const config = STAGE_STATUS_CONFIG[status];
   const Icon = config.icon;
-  const abortable = ABORTABLE_STAGES.includes(stage);
+  const abortable = isAbortableStage(stage);
 
   return (
     <>

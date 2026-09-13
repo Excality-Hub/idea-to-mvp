@@ -23,11 +23,11 @@ export function deriveStageStatus(
 }
 
 export function deriveOverallStatus(eventsByStage: EventsByStage): OverallStatus {
-  const allEvents = Object.values(eventsByStage).flat();
+  const allEvents = Object.values(eventsByStage).filter((v) => v !== undefined).flat();
   if (allEvents.length === 0) return "idle";
   if (allEvents.some((e) => e.status === "failed" && e.stage !== "tracing_pack")) return "failed";
   if (deriveStageStatus(eventsByStage.merge) === "blocked") return "blocked";
   if (deriveStageStatus(eventsByStage.deploy) === "done") return "deployed";
-  if (Object.values(eventsByStage).some((events) => deriveStageStatus(events) === "stopped")) return "stopped";
+  if (Object.values(eventsByStage).filter((v) => v !== undefined).some((events) => deriveStageStatus(events) === "stopped")) return "stopped";
   return "running";
 }

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentStoppedError } from "../claudeAgent.js";
 import { RunEventBus } from "./events.js";
-import { runOrchestrator, type OrchestratorDeps, type OrchestratorParams } from "./runOrchestrator.js";
-import type { RunEvent } from "./types.js";
+import { BACKBONE_STEPS, runOrchestrator, type OrchestratorDeps, type OrchestratorParams } from "./runOrchestrator.js";
+import { BACKBONE_STAGES, type ResolvedWorkflow, type RunEvent } from "./types.js";
 
 const fakeUsage = {
   inputTokens: 100,
@@ -12,6 +12,8 @@ const fakeUsage = {
   costUsd: 0.01,
 };
 
+const EMPTY_WORKFLOW: ResolvedWorkflow = { slots: {} };
+
 const params: OrchestratorParams = {
   ideaText: "Build a todo app",
   owner: "org",
@@ -19,6 +21,7 @@ const params: OrchestratorParams = {
   starterDir: "/templates/starter",
   workDir: "/tmp/work",
   githubToken: "test-token",
+  resolvedWorkflow: EMPTY_WORKFLOW,
 };
 
 function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
@@ -73,6 +76,7 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
       usage: fakeUsage,
     }),
     qa: vi.fn().mockResolvedValue({ output: { verdict: "pass", findings: [] }, usage: fakeUsage }),
+    custom: vi.fn(),
   };
 
   return {
@@ -384,5 +388,155 @@ describe("runOrchestrator", () => {
 
     expect(outcome.status).toBe("deployed");
     expect(deps.agents.qa).toHaveBeenCalled();
+  });
+
+  it("inserts a custom agent step after analyst, running it with the idea and prior output as context", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.custom).mockResolvedValue({
+      output: { text: "No security issues found." },
+      usage: fakeUsage,
+    });
+    const workflowParams: OrchestratorParams = {
+      ...params,
+      resolvedWorkflow: {
+        slots: {
+          analyst: [
+            {
+              id: "sec-1",
+              name: "Security Reviewer",
+              instructions: "Look for auth bypass issues.",
+              repoAccess: true,
+              createdAt: "2026-09-10T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    };
+    const events: string[] = [];
+    deps.eventBus.onEvent((event) => events.push(`${event.stage}:${event.status}`));
+
+    const outcome = await runOrchestrator(workflowParams, deps);
+
+    expect(outcome.status).toBe("deployed");
+    const analystIndex = events.indexOf("analyst:done");
+    const architectIndex = events.indexOf("architect:running");
+    expect(events.slice(analystIndex + 1, architectIndex)).toEqual(["custom:sec-1:running", "custom:sec-1:done"]);
+    expect(deps.agents.custom).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "sec-1", name: "Security Reviewer" }),
+      expect.stringContaining("Build a todo app"),
+      "/tmp/work",
+      expect.anything(),
+    );
+  });
+
+  it("inserts a custom agent step after create_repo, before analyst even starts", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.custom).mockResolvedValue({
+      output: { text: "Repo looks good." },
+      usage: fakeUsage,
+    });
+    const workflowParams: OrchestratorParams = {
+      ...params,
+      resolvedWorkflow: {
+        slots: {
+          create_repo: [
+            {
+              id: "repo-checker",
+              name: "Repo Checker",
+              instructions: "Sanity-check the new repo.",
+              repoAccess: false,
+              createdAt: "2026-09-10T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    };
+    const events: string[] = [];
+    deps.eventBus.onEvent((event) => events.push(`${event.stage}:${event.status}`));
+
+    const outcome = await runOrchestrator(workflowParams, deps);
+
+    expect(outcome.status).toBe("deployed");
+    const createRepoIndex = events.indexOf("create_repo:done");
+    const analystIndex = events.indexOf("analyst:running");
+    expect(events.slice(createRepoIndex + 1, analystIndex)).toEqual([
+      "custom:repo-checker:running",
+      "custom:repo-checker:done",
+    ]);
+  });
+
+  it("clones the repo before running a repoAccess custom agent placed before the developer stage, and only once even though developer would otherwise clone too", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.custom).mockResolvedValue({
+      output: { text: "Looked at the repo." },
+      usage: fakeUsage,
+    });
+    const workflowParams: OrchestratorParams = {
+      ...params,
+      resolvedWorkflow: {
+        slots: {
+          analyst: [
+            {
+              id: "repo-agent",
+              name: "Repo Reader",
+              instructions: "Read the repo.",
+              repoAccess: true,
+              createdAt: "2026-09-10T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    };
+
+    const outcome = await runOrchestrator(workflowParams, deps);
+
+    expect(outcome.status).toBe("deployed");
+    expect(deps.git.cloneRepo).toHaveBeenCalledTimes(1);
+    const cloneOrder = vi.mocked(deps.git.cloneRepo).mock.invocationCallOrder[0];
+    const customOrder = vi.mocked(deps.agents.custom).mock.invocationCallOrder[0];
+    expect(cloneOrder).toBeLessThan(customOrder);
+  });
+
+  it("does not clone the repo for a custom agent without repoAccess placed before the developer stage", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.custom).mockResolvedValue({
+      output: { text: "Just thinking out loud." },
+      usage: fakeUsage,
+    });
+    const workflowParams: OrchestratorParams = {
+      ...params,
+      resolvedWorkflow: {
+        slots: {
+          analyst: [
+            {
+              id: "text-agent",
+              name: "Brainstormer",
+              instructions: "Suggest ideas.",
+              repoAccess: false,
+              createdAt: "2026-09-10T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    };
+    let cloneCallsAtCustomDone: number | undefined;
+    deps.eventBus.onEvent((event) => {
+      if (event.stage === "custom:text-agent" && event.status === "done") {
+        cloneCallsAtCustomDone = vi.mocked(deps.git.cloneRepo).mock.calls.length;
+      }
+    });
+
+    const outcome = await runOrchestrator(workflowParams, deps);
+
+    expect(outcome.status).toBe("deployed");
+    expect(cloneCallsAtCustomDone).toBe(0);
+    // developer's own clone-once guard still fires later in the same run.
+    expect(deps.git.cloneRepo).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("BACKBONE_STEPS / BACKBONE_STAGES invariant", () => {
+  it("BACKBONE_STEPS' step names are exactly the splice-eligible BACKBONE_STAGES, in the same order", () => {
+    expect(BACKBONE_STEPS.map((step) => step.name)).toEqual(BACKBONE_STAGES);
   });
 });
