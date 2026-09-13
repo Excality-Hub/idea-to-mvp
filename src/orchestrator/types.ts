@@ -72,6 +72,8 @@ export const WorkflowInputSchema = z.object({
 });
 export type WorkflowInput = z.infer<typeof WorkflowInputSchema>;
 
+export type SlotEntry = { kind: "agent"; agent: AgentDefinition } | { kind: "gate"; id: string };
+
 export interface ResolvedWorkflow {
-  slots: Partial<Record<BackboneStage, AgentDefinition[]>>;
+  slots: Partial<Record<BackboneStage, SlotEntry[]>>;
 }
