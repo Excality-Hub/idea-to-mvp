@@ -324,4 +324,80 @@ describe("RunController", () => {
       expect.anything(),
     );
   });
+
+  it("pauses at a gate placed via workflow slots, then approves and continues to completion", async () => {
+    const config = makeConfig();
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      {
+        id: "with-gate",
+        name: "With a gate",
+        slots: { analyst: ["gate:g1"] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app", "with-gate");
+    await waitForStage(controller.eventBus, "gate:g1", "stopped");
+    const stoppedOutcome = await controller.getRunPromise();
+
+    expect(stoppedOutcome?.status).toBe("stopped");
+    expect(controller.getStatus()).toBe("stopped");
+
+    controller.decideGate("g1", "approved");
+    const finalOutcome = await controller.getRunPromise();
+
+    expect(finalOutcome?.status).toBe("deployed");
+  });
+
+  it("ends the run blocked when a gate is rejected", async () => {
+    const config = makeConfig();
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      {
+        id: "with-gate",
+        name: "With a gate",
+        slots: { analyst: ["gate:g1"] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app", "with-gate");
+    await waitForStage(controller.eventBus, "gate:g1", "stopped");
+    await controller.getRunPromise();
+    controller.decideGate("g1", "rejected");
+    const finalOutcome = await controller.getRunPromise();
+
+    expect(finalOutcome).toEqual({ status: "gate_rejected", stage: "gate:g1" });
+    expect(controller.getStatus()).toBe("done");
+  });
+
+  it("throws when decideGate is called with no stopped run", () => {
+    const controller = new RunController(makeConfig());
+    expect(() => controller.decideGate("g1", "approved")).toThrow("No stopped run to decide");
+  });
+
+  it("throws when decideGate is called for a gate that isn't the run's current stopped stage", async () => {
+    const config = makeConfig();
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      {
+        id: "with-gate",
+        name: "With a gate",
+        slots: { analyst: ["gate:g1"] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app", "with-gate");
+    await waitForStage(controller.eventBus, "gate:g1", "stopped");
+    await controller.getRunPromise();
+
+    expect(() => controller.decideGate("other-gate", "approved")).toThrow(
+      "Gate other-gate is not the run's current stopped stage",
+    );
+  });
 });
