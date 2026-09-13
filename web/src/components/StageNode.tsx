@@ -2,7 +2,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
 import { STAGE_STATUS_CONFIG } from "@/components/status";
 import { cn } from "@/lib/utils";
-import { isAbortableStage } from "@/types";
+import { isAbortableStage, isGateStage } from "@/types";
 import { STAGE_NODE_WIDTH, type StageFlowNode } from "@/lib/workflowGraph";
 
 async function postRunAction(path: string): Promise<void> {
@@ -14,6 +14,8 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
   const config = STAGE_STATUS_CONFIG[status];
   const Icon = config.icon;
   const abortable = isAbortableStage(stage);
+  const isGate = isGateStage(stage);
+  const gateId = isGate ? stage.slice("gate:".length) : undefined;
 
   return (
     <>
@@ -49,6 +51,31 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
           >
             Stop
           </Button>
+        )}
+        {isGate && status === "stopped" && (
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={(event) => {
+                event.stopPropagation();
+                void postRunAction(`/api/run/gates/${gateId}/approve`);
+              }}
+            >
+              Approve
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={(event) => {
+                event.stopPropagation();
+                void postRunAction(`/api/run/gates/${gateId}/reject`);
+              }}
+            >
+              Reject
+            </Button>
+          </div>
         )}
         {abortable && status === "stopped" && (
           <Button

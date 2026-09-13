@@ -106,4 +106,51 @@ describe("StageNode", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/run/stop", { method: "POST" });
     vi.unstubAllGlobals();
   });
+
+  it("shows Approve/Reject buttons for a stopped gate stage, not Resume", () => {
+    renderStageNode({
+      id: "gate:g1",
+      type: "stage",
+      position: { x: 0, y: 0 },
+      data: { stage: "gate:g1", label: "Approval gate", status: "stopped", latestEvent: undefined },
+    });
+
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+  });
+
+  it("posts to the gate's approve route when Approve is clicked", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderStageNode({
+      id: "gate:g1",
+      type: "stage",
+      position: { x: 0, y: 0 },
+      data: { stage: "gate:g1", label: "Approval gate", status: "stopped", latestEvent: undefined },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/run/gates/g1/approve", { method: "POST" });
+    vi.unstubAllGlobals();
+  });
+
+  it("posts to the gate's reject route when Reject is clicked", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderStageNode({
+      id: "gate:g1",
+      type: "stage",
+      position: { x: 0, y: 0 },
+      data: { stage: "gate:g1", label: "Approval gate", status: "stopped", latestEvent: undefined },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Reject" }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/run/gates/g1/reject", { method: "POST" });
+    vi.unstubAllGlobals();
+  });
 });
