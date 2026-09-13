@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildPipelineGraph, insertAgent, removeAgent, type CustomAgentNodeData, type SlotsState } from "./pipelineCanvas";
+import {
+  buildPipelineGraph,
+  insertEntry,
+  removeEntry,
+  type CustomAgentNodeData,
+  type SlotsState,
+} from "./pipelineCanvas";
 import type { AgentDefinition } from "@/types";
 
 const agentA: AgentDefinition = { id: "a", name: "Agent A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" };
@@ -54,22 +60,45 @@ describe("buildPipelineGraph", () => {
   });
 });
 
-describe("insertAgent", () => {
+describe("buildPipelineGraph gate nodes", () => {
+  it("renders a gate entry as a gate node instead of a custom node", () => {
+    const slots: SlotsState = { analyst: ["gate:g1"] };
+    const { nodes } = buildPipelineGraph(slots, agentsById);
+    const gateNode = nodes.find((n) => n.id === "gate:analyst:0:g1");
+    expect(gateNode?.type).toBe("gate");
+    expect(gateNode?.data).toMatchObject({ afterStage: "analyst", index: 0, gateId: "g1" });
+    expect(nodes.filter((n) => n.type === "custom")).toHaveLength(0);
+  });
+
+  it("never flags a gate entry as missing inputs, and doesn't block a later agent from seeing an earlier agent's output", () => {
+    const producer: AgentDefinition = { ...agentA, outputs: ["pull_request"] };
+    const slots: SlotsState = { create_repo: ["a", "gate:g1", "c"] };
+    const { nodes } = buildPipelineGraph(slots, { a: producer, c: agentNeedsPr });
+    const node = nodes.find((n) => n.id === "custom:create_repo:2:c")!;
+    expect((node.data as CustomAgentNodeData).missingInputs).toEqual([]);
+  });
+});
+
+describe("insertEntry", () => {
   it("appends to an empty stage", () => {
-    expect(insertAgent({}, "analyst", 0, "a")).toEqual({ analyst: ["a"] });
+    expect(insertEntry({}, "analyst", 0, "a")).toEqual({ analyst: ["a"] });
   });
 
   it("inserts at a given index within an existing chain", () => {
     const slots: SlotsState = { analyst: ["a"] };
-    expect(insertAgent(slots, "analyst", 0, "b")).toEqual({ analyst: ["b", "a"] });
-    expect(insertAgent(slots, "analyst", 1, "b")).toEqual({ analyst: ["a", "b"] });
+    expect(insertEntry(slots, "analyst", 0, "b")).toEqual({ analyst: ["b", "a"] });
+    expect(insertEntry(slots, "analyst", 1, "b")).toEqual({ analyst: ["a", "b"] });
   });
 
   it("does not mutate other stages", () => {
     const slots: SlotsState = { analyst: ["a"], qa: ["b"] };
     const original = { analyst: ["a"], qa: ["b"] };
-    expect(insertAgent(slots, "qa", 1, "a")).toEqual({ analyst: ["a"], qa: ["b", "a"] });
+    expect(insertEntry(slots, "qa", 1, "a")).toEqual({ analyst: ["a"], qa: ["b", "a"] });
     expect(slots).toEqual(original);
+  });
+
+  it("inserts a gate marker the same way as an agent id", () => {
+    expect(insertEntry({}, "analyst", 0, "gate:g1")).toEqual({ analyst: ["gate:g1"] });
   });
 });
 
@@ -114,16 +143,16 @@ describe("buildPipelineGraph missing-input flags", () => {
   });
 });
 
-describe("removeAgent", () => {
+describe("removeEntry", () => {
   it("removes an agent from its stage", () => {
     const slots: SlotsState = { analyst: ["a", "b"] };
-    expect(removeAgent(slots, "analyst", "a")).toEqual({ analyst: ["b"] });
-    expect(removeAgent({ analyst: ["a"] }, "analyst", "a")).toEqual({});
+    expect(removeEntry(slots, "analyst", "a")).toEqual({ analyst: ["b"] });
+    expect(removeEntry({ analyst: ["a"] }, "analyst", "a")).toEqual({});
     expect(slots).toEqual({ analyst: ["a", "b"] });
   });
 
   it("is a no-op when the agent isn't in that stage", () => {
     const slots: SlotsState = { analyst: ["a"] };
-    expect(removeAgent(slots, "analyst", "missing")).toEqual({ analyst: ["a"] });
+    expect(removeEntry(slots, "analyst", "missing")).toEqual({ analyst: ["a"] });
   });
 });

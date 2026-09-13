@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { useAgents } from "@/hooks/useAgents";
 import {
   buildPipelineGraph,
-  insertAgent,
-  removeAgent,
+  insertEntry,
+  removeEntry,
   type BackboneNodeData,
   type CustomAgentNodeData,
   type InsertionPointNodeData,
@@ -145,10 +145,10 @@ export function PipelineCanvas({ initial, onSaved, onCancel }: PipelineCanvasPro
   const paletteAgents = agents.filter((agent) => !usedAgentIds.has(agent.id));
 
   const handleInsert = useCallback((afterStage: BackboneStage, index: number, agentId: string) => {
-    setSlots((prev) => insertAgent(prev, afterStage, index, agentId));
+    setSlots((prev) => insertEntry(prev, afterStage, index, agentId));
   }, []);
   const handleRemove = useCallback((afterStage: BackboneStage, agentId: string) => {
-    setSlots((prev) => removeAgent(prev, afterStage, agentId));
+    setSlots((prev) => removeEntry(prev, afterStage, agentId));
   }, []);
 
   const graph = useMemo(() => buildPipelineGraph(slots, agentsById), [slots, agentsById]);
