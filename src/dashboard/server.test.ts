@@ -188,7 +188,7 @@ describe("createAgentHandlers", () => {
     expect(res.json).toHaveBeenCalledWith(agentStore.list());
   });
 
-  it("creates an agent from a valid body and returns 201", () => {
+  it("creates an agent from a valid body and returns 201, defaulting inputs/outputs to empty arrays", () => {
     const agentStore = makeAgentStore();
     const { create } = createAgentHandlers(agentStore, makeWorkflowStore());
     const res = makeFakeRes();
@@ -200,9 +200,53 @@ describe("createAgentHandlers", () => {
     );
 
     expect(agentStore.create).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "Security Reviewer", instructions: "check for bugs", repoAccess: true }),
+      expect.objectContaining({
+        name: "Security Reviewer",
+        instructions: "check for bugs",
+        repoAccess: true,
+        inputs: [],
+        outputs: [],
+      }),
     );
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("creates an agent with declared inputs and outputs", () => {
+    const agentStore = makeAgentStore();
+    const { create } = createAgentHandlers(agentStore, makeWorkflowStore());
+    const res = makeFakeRes();
+
+    create(
+      {
+        body: {
+          name: "PR Reviewer",
+          instructions: "review the diff",
+          repoAccess: false,
+          inputs: ["pull_request"],
+          outputs: ["qa_findings"],
+        },
+      } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(agentStore.create).toHaveBeenCalledWith(
+      expect.objectContaining({ inputs: ["pull_request"], outputs: ["qa_findings"] }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("returns 400 when inputs contains an unknown data kind", () => {
+    const { create } = createAgentHandlers(makeAgentStore(), makeWorkflowStore());
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "X", instructions: "y", repoAccess: false, inputs: ["not_a_real_kind"] } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(400);
   });
 
   it("returns 400 when the create body is invalid", () => {

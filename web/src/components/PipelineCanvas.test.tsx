@@ -5,6 +5,15 @@ import { PipelineCanvas } from "./PipelineCanvas";
 
 const agentA = { id: "a", name: "Agent A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" };
 const agentB = { id: "b", name: "Agent B", instructions: "do b", repoAccess: true, createdAt: "2026-01-01T00:00:00.000Z" };
+const agentC = {
+  id: "c",
+  name: "PR Reviewer",
+  instructions: "review the diff",
+  repoAccess: false,
+  inputs: ["pull_request"],
+  outputs: [],
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
 
 function stubFetch(overrides: { agents?: unknown; save?: { ok: boolean; body?: unknown } } = {}) {
   const fetchMock = vi.fn((url: string) => {
@@ -163,6 +172,26 @@ describe("PipelineCanvas", () => {
     await waitFor(() =>
       expect(within(screen.getByTestId("agent-palette")).getByText("Failed to load agents (undefined)")).toBeInTheDocument(),
     );
+  });
+
+  it("shows a warning badge on a custom agent placed before its declared input is available", async () => {
+    stubFetch({ agents: [agentA, agentB, agentC] });
+    const initial = { id: "w1", name: "Existing", slots: { create_repo: ["c"] }, createdAt: "2026-01-01T00:00:00.000Z" };
+
+    render(<PipelineCanvas initial={initial} onSaved={() => {}} onCancel={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText("PR Reviewer")).toBeInTheDocument());
+    expect(screen.getByTitle(/missing: pull request/i)).toBeInTheDocument();
+  });
+
+  it("shows no warning badge once the custom agent is placed after its declared input is available", async () => {
+    stubFetch({ agents: [agentA, agentB, agentC] });
+    const initial = { id: "w1", name: "Existing", slots: { qa: ["c"] }, createdAt: "2026-01-01T00:00:00.000Z" };
+
+    render(<PipelineCanvas initial={initial} onSaved={() => {}} onCancel={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText("PR Reviewer")).toBeInTheDocument());
+    expect(screen.queryByTitle(/missing:/i)).not.toBeInTheDocument();
   });
 
   it("calls onCancel when Cancel is clicked", async () => {

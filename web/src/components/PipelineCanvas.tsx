@@ -14,7 +14,7 @@ import {
   type SlotsState,
 } from "@/lib/pipelineCanvas";
 import { cn } from "@/lib/utils";
-import { BACKBONE_STAGES, type AgentDefinition, type BackboneStage, type WorkflowDefinition } from "@/types";
+import { BACKBONE_STAGES, DATA_KIND_LABELS, type AgentDefinition, type BackboneStage, type WorkflowDefinition } from "@/types";
 
 const AGENT_DND_TYPE = "application/x-agent-id";
 
@@ -38,7 +38,7 @@ function BackboneNode({ data }: NodeProps<PipelineFlowNode>) {
 }
 
 function CustomAgentNode({ data }: NodeProps<PipelineFlowNode>) {
-  const { name, onRemove } = data as CustomAgentNodeData & { onRemove: () => void };
+  const { name, missingInputs, onRemove } = data as CustomAgentNodeData & { onRemove: () => void };
   return (
     <>
       <Handle type="target" position={Position.Left} className="!bg-border" />
@@ -47,6 +47,9 @@ function CustomAgentNode({ data }: NodeProps<PipelineFlowNode>) {
         style={{ pointerEvents: "auto" }}
       >
         <span>{name}</span>
+        {missingInputs.length > 0 && (
+          <span title={`Missing: ${missingInputs.map((kind) => DATA_KIND_LABELS[kind]).join(", ")}`}>⚠</span>
+        )}
         <button type="button" onClick={onRemove} aria-label={`Remove ${name}`}>
           &times;
         </button>

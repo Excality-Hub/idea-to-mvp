@@ -50,8 +50,76 @@ describe("AgentsView", () => {
         name: "Security Reviewer",
         instructions: "Look for auth bypass issues.",
         repoAccess: true,
+        inputs: [],
+        outputs: [],
       }),
     });
+  });
+
+  it("includes selected Needs/Produces data kinds when creating an agent", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) }) // initial GET
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(agent) }) // POST
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([agent]) }); // refetch GET
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<AgentsView />);
+    await waitFor(() => expect(screen.queryByText("Loading…")).not.toBeInTheDocument());
+
+    await user.type(screen.getByLabelText("Name"), "Security Reviewer");
+    await user.type(screen.getByLabelText("Instructions"), "Look for auth bypass issues.");
+    await user.click(within(screen.getByTestId("agent-inputs")).getByLabelText("Pull request"));
+    await user.click(within(screen.getByTestId("agent-outputs")).getByLabelText("QA findings"));
+    await user.click(screen.getByRole("button", { name: "Create agent" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/agents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Security Reviewer",
+        instructions: "Look for auth bypass issues.",
+        repoAccess: false,
+        inputs: ["pull_request"],
+        outputs: ["qa_findings"],
+      }),
+    });
+  });
+
+  it("analyzes the instructions text on demand without calling the network", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) }));
+    const user = userEvent.setup();
+
+    render(<AgentsView />);
+    await waitFor(() => expect(screen.queryByText("Loading…")).not.toBeInTheDocument());
+
+    await user.type(screen.getByLabelText("Instructions"), "Add a unit test for the parseDate function.");
+    await user.click(screen.getByRole("button", { name: "Analyze instructions" }));
+
+    expect(screen.getByText(/complexity: low/i)).toBeInTheDocument();
+    expect(screen.getByText(/cost tier: low/i)).toBeInTheDocument();
+    expect(screen.getByText(/no risk flags detected/i)).toBeInTheDocument();
+  });
+
+  it("flags unbounded scope and repo access risk when analyzing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) }));
+    const user = userEvent.setup();
+
+    render(<AgentsView />);
+    await waitFor(() => expect(screen.queryByText("Loading…")).not.toBeInTheDocument());
+
+    await user.type(
+      screen.getByLabelText("Instructions"),
+      "If a file has no tests, write tests for it. Otherwise, refactor it for clarity.",
+    );
+    await user.click(screen.getByLabelText(/repo read access/i));
+    await user.click(screen.getByRole("button", { name: "Analyze instructions" }));
+
+    expect(
+      screen.getByText(/repo access combined with complex instructions can multiply real token usage/i),
+    ).toBeInTheDocument();
   });
 
   it("deletes an agent when its delete button is clicked", async () => {
