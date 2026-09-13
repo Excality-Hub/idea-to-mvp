@@ -6,7 +6,7 @@ import type { RunController } from "../orchestrator/runController.js";
 import type { AgentStore } from "../agents/agentStore.js";
 import { AgentDefinitionInputSchema, type AgentDefinition } from "../agents/types.js";
 import { DEFAULT_WORKFLOW_ID, type WorkflowStore } from "../orchestrator/workflowStore.js";
-import { BACKBONE_STAGES, WorkflowInputSchema, type BackboneStage, type WorkflowDefinition } from "../orchestrator/types.js";
+import { BACKBONE_STAGES, isGateEntry, WorkflowInputSchema, type BackboneStage, type WorkflowDefinition } from "../orchestrator/types.js";
 
 export interface RunSession {
   eventBus: RunEventBus;
@@ -38,10 +38,12 @@ export function createEventsHandler(session: RunSession): express.RequestHandler
   };
 }
 
-export function createRunHandlers(controller: Pick<RunController, "start" | "stop" | "resume">): {
+export function createRunHandlers(controller: Pick<RunController, "start" | "stop" | "resume" | "decideGate">): {
   start: express.RequestHandler;
   stop: express.RequestHandler;
   resume: express.RequestHandler;
+  approveGate: express.RequestHandler;
+  rejectGate: express.RequestHandler;
 } {
   const start: express.RequestHandler = (req, res) => {
     const body = req.body as { ideaText?: string; workflowId?: string } | undefined;
@@ -80,7 +82,18 @@ export function createRunHandlers(controller: Pick<RunController, "start" | "sto
     }
   };
 
-  return { start, stop, resume };
+  const decide = (decision: "approved" | "rejected"): express.RequestHandler => (req, res) => {
+    try {
+      controller.decideGate(req.params.id, decision);
+      res.status(204).end();
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  };
+  const approveGate = decide("approved");
+  const rejectGate = decide("rejected");
+
+  return { start, stop, resume, approveGate, rejectGate };
 }
 
 export function createAgentHandlers(
@@ -140,7 +153,7 @@ export function createWorkflowHandlers(
     }
     const slots = parsed.data.slots as Partial<Record<BackboneStage, string[]>>;
     const allIds = Object.values(slots).flat();
-    const unknownId = allIds.find((id) => !agentStore.get(id));
+    const unknownId = allIds.find((id) => !isGateEntry(id) && !agentStore.get(id));
     if (unknownId) {
       return { ok: false, error: `Unknown agent id: ${unknownId}` };
     }
@@ -206,10 +219,12 @@ export function createDashboardServer(
   app.use(express.json());
   app.use(express.static(fileURLToPath(new URL("../../web/dist", import.meta.url))));
   app.get("/events", createEventsHandler(controller));
-  const { start, stop, resume } = createRunHandlers(controller);
+  const { start, stop, resume, approveGate, rejectGate } = createRunHandlers(controller);
   app.post("/api/run", start);
   app.post("/api/run/stop", stop);
   app.post("/api/run/resume", resume);
+  app.post("/api/run/gates/:id/approve", approveGate);
+  app.post("/api/run/gates/:id/reject", rejectGate);
   app.get("/api/run/plan", (_req, res) => {
     res.json(controller.getPlan() ?? []);
   });

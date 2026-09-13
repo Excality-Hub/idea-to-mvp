@@ -79,7 +79,7 @@ describe("createEventsHandler", () => {
 
 describe("createRunHandlers", () => {
   it("starts a run with the request body's ideaText and returns 204", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn() };
+    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
     const { start } = createRunHandlers(controller);
     const res = makeFakeRes();
 
@@ -90,7 +90,7 @@ describe("createRunHandlers", () => {
   });
 
   it("returns 400 when ideaText is missing", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn() };
+    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
     const { start } = createRunHandlers(controller);
     const res = makeFakeRes();
 
@@ -107,6 +107,7 @@ describe("createRunHandlers", () => {
       }),
       stop: vi.fn(),
       resume: vi.fn(),
+      decideGate: vi.fn(),
     };
     const { start } = createRunHandlers(controller);
     const res = makeFakeRes();
@@ -117,7 +118,7 @@ describe("createRunHandlers", () => {
   });
 
   it("stops the current run and returns 204", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn() };
+    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
     const { stop } = createRunHandlers(controller);
     const res = makeFakeRes();
 
@@ -134,6 +135,7 @@ describe("createRunHandlers", () => {
         throw new Error("No abortable stage is currently running");
       }),
       resume: vi.fn(),
+      decideGate: vi.fn(),
     };
     const { stop } = createRunHandlers(controller);
     const res = makeFakeRes();
@@ -144,7 +146,7 @@ describe("createRunHandlers", () => {
   });
 
   it("resumes a stopped run and returns 204", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn() };
+    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
     const { resume } = createRunHandlers(controller);
     const res = makeFakeRes();
 
@@ -152,6 +154,47 @@ describe("createRunHandlers", () => {
 
     expect(controller.resume).toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(204);
+  });
+});
+
+describe("createRunHandlers gate routes", () => {
+  it("approves a gate and returns 204", () => {
+    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
+    const { approveGate } = createRunHandlers(controller);
+    const res = makeFakeRes();
+
+    approveGate({ params: { id: "g1" } } as never, res as never, (() => {}) as never);
+
+    expect(controller.decideGate).toHaveBeenCalledWith("g1", "approved");
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it("rejects a gate and returns 204", () => {
+    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
+    const { rejectGate } = createRunHandlers(controller);
+    const res = makeFakeRes();
+
+    rejectGate({ params: { id: "g1" } } as never, res as never, (() => {}) as never);
+
+    expect(controller.decideGate).toHaveBeenCalledWith("g1", "rejected");
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it("returns 409 when decideGate throws", () => {
+    const controller = {
+      start: vi.fn(),
+      stop: vi.fn(),
+      resume: vi.fn(),
+      decideGate: vi.fn(() => {
+        throw new Error("No stopped run to decide");
+      }),
+    };
+    const { approveGate } = createRunHandlers(controller);
+    const res = makeFakeRes();
+
+    approveGate({ params: { id: "g1" } } as never, res as never, (() => {}) as never);
+
+    expect(res.status).toHaveBeenCalledWith(409);
   });
 });
 
@@ -510,11 +553,28 @@ describe("createWorkflowHandlers", () => {
     expect(workflowStore.update).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
   });
+
+  it("creates a workflow whose slots contain a gate entry, without requiring it to resolve to an agent", () => {
+    const workflowStore = makeWorkflowStore();
+    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "With a gate", slots: { analyst: ["gate:g1"] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "With a gate", slots: { analyst: ["gate:g1"] } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
 });
 
 describe("createRunHandlers with a workflowId", () => {
   it("starts a run with the given workflowId when provided", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn() };
+    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
     const { start } = createRunHandlers(controller);
     const res = makeFakeRes();
 
