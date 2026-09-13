@@ -1,5 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
-import { BACKBONE_STAGES, STAGE_LABELS, STAGE_ORDER, type AgentDefinition, type BackboneStage } from "@/types";
+import { BACKBONE_STAGE_IO, BACKBONE_STAGES, STAGE_LABELS, STAGE_ORDER, type AgentDefinition, type BackboneStage, type DataKind } from "@/types";
 
 const SPLICEABLE_STAGES = new Set<string>(BACKBONE_STAGES);
 
@@ -17,6 +17,7 @@ export interface CustomAgentNodeData extends Record<string, unknown> {
   index: number;
   agentId: string;
   name: string;
+  missingInputs: DataKind[];
 }
 
 export interface InsertionPointNodeData extends Record<string, unknown> {
@@ -29,12 +30,35 @@ export type EndNodeData = Record<string, unknown>;
 export type PipelineNodeData = BackboneNodeData | CustomAgentNodeData | InsertionPointNodeData | EndNodeData;
 export type PipelineFlowNode = Node<PipelineNodeData>;
 
+export function computeMissingInputs(
+  slots: SlotsState,
+  agentsById: Record<string, AgentDefinition>,
+): Map<string, DataKind[]> {
+  const missing = new Map<string, DataKind[]>();
+  const available = new Set<DataKind>(["idea_text"]);
+  for (const stage of BACKBONE_STAGES) {
+    BACKBONE_STAGE_IO[stage].outputs.forEach((kind) => available.add(kind));
+    const agentIds = slots[stage] ?? [];
+    agentIds.forEach((agentId, index) => {
+      const agent = agentsById[agentId];
+      const needed = agent?.inputs ?? [];
+      const unmet = needed.filter((kind) => !available.has(kind));
+      if (unmet.length > 0) {
+        missing.set(`custom:${stage}:${index}:${agentId}`, unmet);
+      }
+      (agent?.outputs ?? []).forEach((kind) => available.add(kind));
+    });
+  }
+  return missing;
+}
+
 export function buildPipelineGraph(
   slots: SlotsState,
   agentsById: Record<string, AgentDefinition>,
 ): { nodes: PipelineFlowNode[]; edges: Edge[] } {
   const nodes: PipelineFlowNode[] = [];
   const edges: Edge[] = [];
+  const missingInputsByNodeId = computeMissingInputs(slots, agentsById);
   let previousId: string | undefined;
   let x = 0;
 
@@ -54,11 +78,13 @@ export function buildPipelineGraph(
     const agentIds = slots[backboneStage] ?? [];
     pushNode(`insertion:${backboneStage}:0`, "insertion", { afterStage: backboneStage, index: 0 });
     agentIds.forEach((agentId, index) => {
-      pushNode(`custom:${backboneStage}:${index}:${agentId}`, "custom", {
+      const nodeId = `custom:${backboneStage}:${index}:${agentId}`;
+      pushNode(nodeId, "custom", {
         afterStage: backboneStage,
         index,
         agentId,
         name: agentsById[agentId]?.name ?? agentId,
+        missingInputs: missingInputsByNodeId.get(nodeId) ?? [],
       });
       pushNode(`insertion:${backboneStage}:${index + 1}`, "insertion", { afterStage: backboneStage, index: index + 1 });
     });

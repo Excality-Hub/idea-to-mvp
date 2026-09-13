@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPipelineGraph, insertAgent, removeAgent, type SlotsState } from "./pipelineCanvas";
+import { buildPipelineGraph, insertAgent, removeAgent, type CustomAgentNodeData, type SlotsState } from "./pipelineCanvas";
 import type { AgentDefinition } from "@/types";
 
 const agentA: AgentDefinition = { id: "a", name: "Agent A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" };
@@ -70,6 +70,47 @@ describe("insertAgent", () => {
     const original = { analyst: ["a"], qa: ["b"] };
     expect(insertAgent(slots, "qa", 1, "a")).toEqual({ analyst: ["a"], qa: ["b", "a"] });
     expect(slots).toEqual(original);
+  });
+});
+
+const agentNeedsPr: AgentDefinition = {
+  id: "c",
+  name: "PR Reviewer",
+  instructions: "review the diff",
+  repoAccess: false,
+  inputs: ["pull_request"],
+  outputs: ["qa_findings"],
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
+
+describe("buildPipelineGraph missing-input flags", () => {
+  it("flags a custom agent placed before its declared input is available", () => {
+    const slots: SlotsState = { create_repo: ["c"] };
+    const { nodes } = buildPipelineGraph(slots, { c: agentNeedsPr });
+    const node = nodes.find((n) => n.id === "custom:create_repo:0:c")!;
+    expect((node.data as CustomAgentNodeData).missingInputs).toEqual(["pull_request"]);
+  });
+
+  it("does not flag a custom agent placed after its declared input is available", () => {
+    const slots: SlotsState = { qa: ["c"] };
+    const { nodes } = buildPipelineGraph(slots, { c: agentNeedsPr });
+    const node = nodes.find((n) => n.id === "custom:qa:0:c")!;
+    expect((node.data as CustomAgentNodeData).missingInputs).toEqual([]);
+  });
+
+  it("makes an earlier custom agent's declared output available to a later one in the same slot", () => {
+    const producer: AgentDefinition = { ...agentA, outputs: ["pull_request"] };
+    const slots: SlotsState = { create_repo: ["a", "c"] };
+    const { nodes } = buildPipelineGraph(slots, { a: producer, c: agentNeedsPr });
+    const node = nodes.find((n) => n.id === "custom:create_repo:1:c")!;
+    expect((node.data as CustomAgentNodeData).missingInputs).toEqual([]);
+  });
+
+  it("never flags an agent with no declared inputs", () => {
+    const slots: SlotsState = { create_repo: ["a"] };
+    const { nodes } = buildPipelineGraph(slots, { a: agentA });
+    const node = nodes.find((n) => n.id === "custom:create_repo:0:a")!;
+    expect((node.data as CustomAgentNodeData).missingInputs).toEqual([]);
   });
 });
 
