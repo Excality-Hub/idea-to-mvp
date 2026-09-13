@@ -13,7 +13,8 @@ export type StageName =
   | "merge"
   | "deploy"
   | "tracing_pack"
-  | `custom:${string}`;
+  | `custom:${string}`
+  | `gate:${string}`;
 
 export type StageStatus = "running" | "done" | "failed" | "blocked" | "stopped";
 
@@ -66,6 +67,16 @@ export const BACKBONE_STAGES = [
   "deploy",
 ] as const;
 export type BackboneStage = (typeof BACKBONE_STAGES)[number];
+
+export const GATE_ID_PREFIX = "gate:";
+
+export function isGateEntry(id: string): boolean {
+  return id.startsWith(GATE_ID_PREFIX);
+}
+
+export function parseGateId(id: string): string {
+  return id.slice(GATE_ID_PREFIX.length);
+}
 
 export const DATA_KINDS = [
   "idea_text",
@@ -127,6 +138,10 @@ export type OverallStatus = "idle" | "running" | "deployed" | "blocked" | "faile
 
 export function isCustomStage(stage: StageName): stage is `custom:${string}` {
   return stage.startsWith("custom:");
+}
+
+export function isGateStage(stage: StageName): stage is `gate:${string}` {
+  return stage.startsWith(GATE_ID_PREFIX);
 }
 
 export function isAbortableStage(stage: StageName): boolean {
