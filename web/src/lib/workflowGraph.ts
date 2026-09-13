@@ -1,7 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { StageDisplayStatus } from "@/components/status";
 import { deriveStageStatus, type EventsByStage } from "@/lib/runEvents";
-import { isCustomStage, STAGE_LABELS, type AgentDefinition, type RunEvent, type StageName } from "@/types";
+import { isCustomStage, isGateStage, STAGE_LABELS, type AgentDefinition, type RunEvent, type StageName } from "@/types";
 
 export const STAGE_NODE_WIDTH = 240;
 export const STAGE_NODE_X_SPACING = 280;
@@ -16,6 +16,9 @@ export interface StageNodeData extends Record<string, unknown> {
 export type StageFlowNode = Node<StageNodeData, "stage">;
 
 export function getStageLabel(stage: StageName, agentsById: Record<string, AgentDefinition>): string {
+  if (isGateStage(stage)) {
+    return "Approval gate";
+  }
   if (!isCustomStage(stage)) {
     return STAGE_LABELS[stage];
   }

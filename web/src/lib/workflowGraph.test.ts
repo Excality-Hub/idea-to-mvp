@@ -92,4 +92,8 @@ describe("getStageLabel", () => {
   it("falls back to the raw stage id for a custom stage with an unknown agent", () => {
     expect(getStageLabel("custom:missing", agentsById)).toBe("custom:missing");
   });
+
+  it("returns 'Approval gate' for a gate stage", () => {
+    expect(getStageLabel("gate:g1", agentsById)).toBe("Approval gate");
+  });
 });
