@@ -73,6 +73,24 @@ describe("analyzeInstructions", () => {
     );
   });
 
+  it("gives low clarity to gibberish/keyboard-mash text", () => {
+    const result = analyzeInstructions("sdsdsd", false);
+    expect(result.clarityScore).toBeLessThan(50);
+  });
+
+  it("flags gibberish/non-word text as a risk", () => {
+    const result = analyzeInstructions("sdsdsd", false);
+    expect(result.riskFlags).toContain(
+      "Instructions contain text that doesn't look like real words — check for typos or placeholder text.",
+    );
+  });
+
+  it("does not treat common no-vowel tech acronyms as gibberish", () => {
+    const result = analyzeInstructions("Use HTTP status codes in the SQL API responses.", false);
+    expect(result.clarityScore).toBe(100);
+    expect(result.riskFlags).toEqual([]);
+  });
+
   it("flags repo access combined with non-trivial complexity", () => {
     const result = analyzeInstructions(
       "If a file has no tests, write tests for it. Otherwise, refactor it for clarity.",

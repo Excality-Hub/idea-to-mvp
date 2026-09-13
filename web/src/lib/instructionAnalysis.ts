@@ -56,8 +56,26 @@ function countAmbiguous(text: string): number {
   return [...text.matchAll(AMBIGUOUS_PATTERN)].length;
 }
 
+const VOWEL_PATTERN = /[aeiou]/i;
+
+function isGibberishWord(word: string): boolean {
+  const isAcronym = word === word.toUpperCase();
+  return word.length >= 4 && !VOWEL_PATTERN.test(word) && !isAcronym;
+}
+
+function gibberishRatio(text: string): number {
+  const words = text
+    .split(/\s+/)
+    .map((word) => word.replace(/[^a-zA-Z]/g, ""))
+    .filter((word) => word.length > 0);
+  if (words.length === 0) return 0;
+  const gibberishCount = words.filter(isGibberishWord).length;
+  return gibberishCount / words.length;
+}
+
 function clarityScore(text: string): number {
-  return Math.max(0, 100 - countAmbiguous(text) * 25);
+  const gibberishPenalty = Math.round(gibberishRatio(text) * 100);
+  return Math.max(0, 100 - countAmbiguous(text) * 25 - gibberishPenalty);
 }
 
 const UNBOUNDED_SCOPE_PATTERN = /\b(all|every|entire|whole)\b/i;
@@ -71,6 +89,9 @@ function buildRiskFlags(text: string, complexityLabel: ComplexityLabel, repoAcce
   }
   if (countAmbiguous(text) > 0) {
     flags.push("Vague or ambiguous language detected — may cause inconsistent agent behavior.");
+  }
+  if (gibberishRatio(text) > 0) {
+    flags.push("Instructions contain text that doesn't look like real words — check for typos or placeholder text.");
   }
   if (repoAccess && complexityLabel !== "Low") {
     flags.push(
