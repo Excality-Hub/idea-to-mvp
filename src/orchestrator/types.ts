@@ -14,7 +14,8 @@ export type StageName =
   | "merge"
   | "deploy"
   | "tracing_pack"
-  | `custom:${string}`;
+  | `custom:${string}`
+  | `gate:${string}`;
 
 export type StageStatus = "running" | "done" | "failed" | "blocked" | "stopped";
 
@@ -47,6 +48,16 @@ export const BACKBONE_STAGES = [
   "deploy",
 ] as const;
 export type BackboneStage = (typeof BACKBONE_STAGES)[number];
+
+export const GATE_ID_PREFIX = "gate:";
+
+export function isGateEntry(id: string): boolean {
+  return id.startsWith(GATE_ID_PREFIX);
+}
+
+export function parseGateId(id: string): string {
+  return id.slice(GATE_ID_PREFIX.length);
+}
 
 export interface WorkflowDefinition {
   id: string;
