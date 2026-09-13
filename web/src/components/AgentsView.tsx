@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAgents } from "@/hooks/useAgents";
 import { analyzeInstructions, type InstructionAnalysis } from "@/lib/instructionAnalysis";
-import type { AgentDefinition } from "@/types";
+import { DATA_KINDS, DATA_KIND_LABELS, type AgentDefinition, type DataKind } from "@/types";
 
 export function AgentsView() {
   const { agents, loading, error, refetch } = useAgents();
@@ -15,6 +15,12 @@ export function AgentsView() {
   const [formError, setFormError] = useState<string | undefined>(undefined);
   const [rowError, setRowError] = useState<{ id: string; message: string } | undefined>(undefined);
   const [analysis, setAnalysis] = useState<InstructionAnalysis | undefined>(undefined);
+  const [inputs, setInputs] = useState<DataKind[]>([]);
+  const [outputs, setOutputs] = useState<DataKind[]>([]);
+
+  function toggle(list: DataKind[], kind: DataKind): DataKind[] {
+    return list.includes(kind) ? list.filter((k) => k !== kind) : [...list, kind];
+  }
 
   async function handleCreate() {
     setFormError(undefined);
@@ -23,7 +29,7 @@ export function AgentsView() {
       const res = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, instructions, repoAccess }),
+        body: JSON.stringify({ name, instructions, repoAccess, inputs, outputs }),
       });
       if (!res.ok) {
         const body = (await res.json()) as { error?: string };
@@ -33,6 +39,8 @@ export function AgentsView() {
       setName("");
       setInstructions("");
       setRepoAccess(false);
+      setInputs([]);
+      setOutputs([]);
       setAnalysis(undefined);
       refetch();
     } finally {
@@ -102,6 +110,36 @@ export function AgentsView() {
             />
             Give this agent repo read access
           </label>
+          <div data-testid="agent-inputs" className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-foreground">Needs</span>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {DATA_KINDS.map((kind) => (
+                <label key={kind} className="flex items-center gap-1.5 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={inputs.includes(kind)}
+                    onChange={() => setInputs((prev) => toggle(prev, kind))}
+                  />
+                  {DATA_KIND_LABELS[kind]}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div data-testid="agent-outputs" className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-foreground">Produces</span>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {DATA_KINDS.map((kind) => (
+                <label key={kind} className="flex items-center gap-1.5 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={outputs.includes(kind)}
+                    onChange={() => setOutputs((prev) => toggle(prev, kind))}
+                  />
+                  {DATA_KIND_LABELS[kind]}
+                </label>
+              ))}
+            </div>
+          </div>
           <Button
             variant="outline"
             onClick={() => setAnalysis(analyzeInstructions(instructions, repoAccess))}
