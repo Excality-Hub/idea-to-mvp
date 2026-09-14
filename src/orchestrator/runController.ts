@@ -47,6 +47,7 @@ export class RunController {
   private busReplacedEmitter = new EventEmitter();
   private plan: StageName[] | undefined;
   private currentProjectId: string | undefined;
+  private unsubscribeProjectAppend: (() => void) | undefined;
 
   constructor(private config: RunControllerConfig) {}
 
@@ -92,6 +93,7 @@ export class RunController {
       ) as Partial<Record<BackboneStage, SlotEntry[]>>,
     };
     if (this.status === "done") {
+      this.unsubscribeProjectAppend?.();
       this.eventBus = new RunEventBus();
       this.busReplacedEmitter.emit("replaced");
     }
@@ -113,8 +115,9 @@ export class RunController {
       createdAt: new Date().toISOString(),
       events: [],
     });
-    this.eventBus.onEvent((event) => {
-      this.config.projectStore.appendEvent(this.currentProjectId!, event);
+    const projectId = this.currentProjectId!;
+    this.unsubscribeProjectAppend = this.eventBus.onEvent((event) => {
+      this.config.projectStore.appendEvent(projectId, event);
     });
     this.runFrom(params, undefined);
   }

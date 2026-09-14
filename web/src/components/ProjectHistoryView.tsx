@@ -33,6 +33,7 @@ export function ProjectHistoryView({ project }: ProjectHistoryViewProps) {
           stageOrder={stageOrder}
           labelFor={labelFor}
           onSelectStage={setSelectedStage}
+          readOnly
         />
       </div>
       <StageDetailSheet

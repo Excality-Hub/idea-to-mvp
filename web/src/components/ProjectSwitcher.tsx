@@ -18,7 +18,7 @@ interface ProjectSwitcherProps {
 }
 
 export function ProjectSwitcher({ selectedProjectId, onSelect }: ProjectSwitcherProps) {
-  const { projects, currentProjectId } = useProjects();
+  const { projects, currentProjectId, refetch } = useProjects();
   const viewedId = selectedProjectId ?? currentProjectId;
   const viewedProject = projects.find((p) => p.id === viewedId);
   const label = viewedProject ? truncate(viewedProject.ideaText) : "idea-to-mvp";
@@ -26,7 +26,11 @@ export function ProjectSwitcher({ selectedProjectId, onSelect }: ProjectSwitcher
   const pastProjects = projects.filter((p) => p.id !== currentProjectId);
 
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (open) refetch();
+      }}
+    >
       <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-left hover:bg-muted">
         <span className="font-heading text-lg font-semibold tracking-tight text-foreground">{label}</span>
       </DropdownMenuTrigger>
@@ -36,6 +40,14 @@ export function ProjectSwitcher({ selectedProjectId, onSelect }: ProjectSwitcher
             <DropdownMenuItem onSelect={() => onSelect(null)}>
               <span className="font-medium text-foreground">{truncate(currentProject.ideaText)}</span>
               <span className="text-xs text-muted-foreground">Live</span>
+            </DropdownMenuItem>
+            {pastProjects.length > 0 && <DropdownMenuSeparator />}
+          </>
+        )}
+        {!currentProject && selectedProjectId !== null && (
+          <>
+            <DropdownMenuItem onSelect={() => onSelect(null)}>
+              <span className="font-medium text-foreground">Back to live</span>
             </DropdownMenuItem>
             {pastProjects.length > 0 && <DropdownMenuSeparator />}
           </>

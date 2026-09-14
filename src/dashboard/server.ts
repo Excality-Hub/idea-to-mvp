@@ -7,7 +7,7 @@ import type { AgentStore } from "../agents/agentStore.js";
 import { AgentDefinitionInputSchema, type AgentDefinition } from "../agents/types.js";
 import { DEFAULT_WORKFLOW_ID, type WorkflowStore } from "../orchestrator/workflowStore.js";
 import { BACKBONE_STAGES, isGateEntry, WorkflowInputSchema, type BackboneStage, type WorkflowDefinition } from "../orchestrator/types.js";
-import type { ProjectStore } from "../orchestrator/projectStore.js";
+import type { ProjectStore, ProjectSummary } from "../orchestrator/projectStore.js";
 
 export interface RunSession {
   eventBus: RunEventBus;
@@ -216,7 +216,7 @@ export function createProjectHandlers(
   controller: Pick<RunController, "getCurrentProjectId">,
 ): { list: express.RequestHandler; get: express.RequestHandler } {
   const list: express.RequestHandler = (_req, res) => {
-    const projects = projectStore
+    const projects: ProjectSummary[] = projectStore
       .list()
       .map(({ events: _events, ...summary }) => summary)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));

@@ -11,6 +11,7 @@ export interface StageNodeData extends Record<string, unknown> {
   label: string;
   status: StageDisplayStatus;
   latestEvent: RunEvent | undefined;
+  readOnly?: boolean;
 }
 
 export type StageFlowNode = Node<StageNodeData, "stage">;
@@ -30,6 +31,7 @@ export function buildStageNodes(
   eventsByStage: EventsByStage,
   stageOrder: StageName[],
   labelFor: (stage: StageName) => string,
+  readOnly: boolean,
 ): StageFlowNode[] {
   return stageOrder.map((stage, index) => {
     const events = eventsByStage[stage];
@@ -42,6 +44,7 @@ export function buildStageNodes(
         label: labelFor(stage),
         status: deriveStageStatus(events),
         latestEvent: events?.[events.length - 1],
+        readOnly,
       },
     };
   });

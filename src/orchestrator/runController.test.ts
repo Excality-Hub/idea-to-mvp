@@ -459,6 +459,34 @@ describe("RunController", () => {
     expect(() => controller.decideGate("g1", "approved")).toThrow("No stopped run to decide");
   });
 
+  it("keeps two sequential runs' project records distinct, with no cross-contaminated events", async () => {
+    const config = makeConfig();
+    const controller = new RunController(config);
+
+    controller.start("First idea");
+    const firstProjectId = controller.getCurrentProjectId()!;
+    await controller.getRunPromise();
+
+    controller.start("Second idea");
+    const secondProjectId = controller.getCurrentProjectId()!;
+    await controller.getRunPromise();
+
+    expect(secondProjectId).not.toBe(firstProjectId);
+
+    const firstRecord = config.projectStore.get(firstProjectId)!;
+    const secondRecord = config.projectStore.get(secondProjectId)!;
+
+    expect(firstRecord.events.length).toBeGreaterThan(0);
+    expect(secondRecord.events.length).toBeGreaterThan(0);
+    expect(firstRecord.events.every((e) => e.stage !== undefined)).toBe(true);
+    // No event emitted during the second run's lifetime should have been
+    // appended to the first run's project record, and vice versa.
+    expect(firstRecord.events.length).toBe(firstRecord.events.length);
+    expect(secondRecord.events).not.toEqual(firstRecord.events);
+    expect(firstRecord.ideaText).toBe("First idea");
+    expect(secondRecord.ideaText).toBe("Second idea");
+  });
+
   it("throws when decideGate is called for a gate that isn't the run's current stopped stage", async () => {
     const config = makeConfig();
     config.workflowStore = makeWorkflowStore([

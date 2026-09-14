@@ -55,4 +55,44 @@ describe("ProjectHistoryView", () => {
     expect(dialog.getByText("Todo app summary")).toBeInTheDocument();
     expect(screen.queryByLabelText("Idea & requirements")).not.toBeInTheDocument();
   });
+
+  it("renders no Stop/Resume/Approve/Reject controls and never calls /api/run, even when the last recorded event for a stage is running or stopped", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/api/agents") return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      if (url.includes("/api/run")) return Promise.reject(new Error(`unexpected live-run call to ${url}`));
+      return Promise.reject(new Error(`unexpected fetch to ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const projectWithLiveLookingStages: ProjectRecord = {
+      id: "p2",
+      ideaText: "Build a chat app",
+      repoName: "idea-to-mvp-2",
+      createdAt: "2026-01-02T00:00:00.000Z",
+      events: [
+        { stage: "developer", status: "running", message: "Writing code", timestamp: "2026-01-02T00:00:00.000Z" },
+        { stage: "developer", status: "stopped", message: "Stopped by user", timestamp: "2026-01-02T00:01:00.000Z" },
+        { stage: "gate:g1", status: "stopped", message: "Awaiting approval", timestamp: "2026-01-02T00:02:00.000Z" },
+      ],
+    };
+
+    render(<ProjectHistoryView project={projectWithLiveLookingStages} />);
+
+    await waitFor(() => expect(screen.getByText("Developer")).toBeInTheDocument());
+    expect(screen.getByText("Approval gate")).toBeInTheDocument();
+
+    // ReactFlow nodes never receive a measured size in jsdom (no ResizeObserver
+    // callback ever fires), which leaves every node `visibility: hidden` and
+    // makes its accessible name compute as empty — so `getByRole` can't be used
+    // to find these buttons here. Query by their literal button text instead,
+    // the same way the rest of this file asserts on rendered stage content.
+    expect(screen.queryByText("Stop", { selector: "button" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Resume", { selector: "button" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Approve", { selector: "button" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Reject", { selector: "button" })).not.toBeInTheDocument();
+
+    for (const call of fetchMock.mock.calls) {
+      expect(String(call[0])).not.toContain("/api/run");
+    }
+  });
 });

@@ -13,10 +13,14 @@ export interface StageFlowGraphProps {
   stageOrder: StageName[];
   labelFor: (stage: StageName) => string;
   onSelectStage: (stage: StageName) => void;
+  readOnly?: boolean;
 }
 
-export function StageFlowGraph({ eventsByStage, stageOrder, labelFor, onSelectStage }: StageFlowGraphProps) {
-  const nodes = useMemo(() => buildStageNodes(eventsByStage, stageOrder, labelFor), [eventsByStage, stageOrder, labelFor]);
+export function StageFlowGraph({ eventsByStage, stageOrder, labelFor, onSelectStage, readOnly = false }: StageFlowGraphProps) {
+  const nodes = useMemo(
+    () => buildStageNodes(eventsByStage, stageOrder, labelFor, readOnly),
+    [eventsByStage, stageOrder, labelFor, readOnly],
+  );
   const edges = useMemo(() => buildStageEdges(eventsByStage, stageOrder), [eventsByStage, stageOrder]);
 
   return (
