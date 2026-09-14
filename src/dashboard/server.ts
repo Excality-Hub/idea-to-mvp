@@ -7,6 +7,7 @@ import type { AgentStore } from "../agents/agentStore.js";
 import { AgentDefinitionInputSchema, type AgentDefinition } from "../agents/types.js";
 import { DEFAULT_WORKFLOW_ID, type WorkflowStore } from "../orchestrator/workflowStore.js";
 import { BACKBONE_STAGES, isGateEntry, WorkflowInputSchema, type BackboneStage, type WorkflowDefinition } from "../orchestrator/types.js";
+import type { ProjectStore, ProjectSummary } from "../orchestrator/projectStore.js";
 
 export interface RunSession {
   eventBus: RunEventBus;
@@ -210,10 +211,35 @@ export function createWorkflowHandlers(
   return { list, create, update, remove };
 }
 
+export function createProjectHandlers(
+  projectStore: Pick<ProjectStore, "list" | "get">,
+  controller: Pick<RunController, "getCurrentProjectId">,
+): { list: express.RequestHandler; get: express.RequestHandler } {
+  const list: express.RequestHandler = (_req, res) => {
+    const projects: ProjectSummary[] = projectStore
+      .list()
+      .map(({ events: _events, ...summary }) => summary)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    res.json({ projects, currentProjectId: controller.getCurrentProjectId() ?? null });
+  };
+
+  const get: express.RequestHandler = (req, res) => {
+    const project = projectStore.get(req.params.id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    res.json(project);
+  };
+
+  return { list, get };
+}
+
 export function createDashboardServer(
   controller: RunController,
   agentStore: AgentStore,
   workflowStore: WorkflowStore,
+  projectStore: ProjectStore,
 ): express.Express {
   const app = express();
   app.use(express.json());
@@ -237,5 +263,8 @@ export function createDashboardServer(
   app.post("/api/workflows", workflowHandlers.create);
   app.put("/api/workflows/:id", workflowHandlers.update);
   app.delete("/api/workflows/:id", workflowHandlers.remove);
+  const projectHandlers = createProjectHandlers(projectStore, controller);
+  app.get("/api/projects", projectHandlers.list);
+  app.get("/api/projects/:id", projectHandlers.get);
   return app;
 }

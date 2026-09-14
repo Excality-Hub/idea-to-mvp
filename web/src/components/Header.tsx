@@ -1,21 +1,22 @@
 import { Badge } from "@/components/ui/badge";
 import { OVERALL_STATUS_CONFIG } from "@/components/status";
+import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 import type { OverallStatus } from "@/types";
 
 interface HeaderProps {
   overallStatus: OverallStatus;
   connected: boolean;
+  selectedProjectId: string | null;
+  onSelectProject: (projectId: string | null) => void;
 }
 
-export function Header({ overallStatus, connected }: HeaderProps) {
+export function Header({ overallStatus, connected, selectedProjectId, onSelectProject }: HeaderProps) {
   const status = OVERALL_STATUS_CONFIG[overallStatus];
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-6">
       <div className="flex items-baseline gap-2">
-        <span className="font-heading text-lg font-semibold tracking-tight text-foreground">
-          idea-to-mvp
-        </span>
+        <ProjectSwitcher selectedProjectId={selectedProjectId} onSelect={onSelectProject} />
         <span className="hidden text-sm text-muted-foreground sm:inline">
           idea &rarr; PR &rarr; deploy, watched live
         </span>

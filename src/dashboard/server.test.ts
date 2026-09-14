@@ -8,6 +8,9 @@ import type { AgentStore } from "../agents/agentStore.js";
 import type { WorkflowDefinition } from "../orchestrator/types.js";
 import type { WorkflowStore } from "../orchestrator/workflowStore.js";
 import { createAgentHandlers, createWorkflowHandlers } from "./server.js";
+import type { ProjectRecord } from "../orchestrator/projectStore.js";
+import type { ProjectStore } from "../orchestrator/projectStore.js";
+import { createProjectHandlers } from "./server.js";
 
 const sampleEvent: RunEvent = {
   stage: "analyst",
@@ -215,6 +218,17 @@ function makeWorkflowStore(workflows: WorkflowDefinition[] = []): WorkflowStore 
     create: vi.fn((item) => workflows.push(item)),
     update: vi.fn(),
     delete: vi.fn(),
+  };
+}
+
+function makeProjectStore(projects: ProjectRecord[] = []): ProjectStore {
+  return {
+    list: () => projects,
+    get: (id) => projects.find((p) => p.id === id),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    appendEvent: vi.fn(),
   };
 }
 
@@ -582,5 +596,72 @@ describe("createRunHandlers with a workflowId", () => {
 
     expect(controller.start).toHaveBeenCalledWith("Build a todo app", "with-review");
     expect(res.status).toHaveBeenCalledWith(204);
+  });
+});
+
+describe("createProjectHandlers", () => {
+  const older: ProjectRecord = {
+    id: "p-older",
+    ideaText: "Build a blog",
+    repoName: "idea-to-mvp-1",
+    createdAt: "2026-09-13T00:00:00.000Z",
+    events: [sampleEvent],
+  };
+  const newer: ProjectRecord = {
+    id: "p-newer",
+    ideaText: "Build a todo app",
+    repoName: "idea-to-mvp-2",
+    createdAt: "2026-09-14T00:00:00.000Z",
+    events: [],
+  };
+
+  it("lists project summaries newest-first, without their events, plus the current project id", () => {
+    const projectStore = makeProjectStore([older, newer]);
+    const controller = { getCurrentProjectId: () => "p-newer" };
+    const { list } = createProjectHandlers(projectStore, controller);
+    const res = makeFakeRes();
+
+    list({} as never, res as never, (() => {}) as never);
+
+    expect(res.json).toHaveBeenCalledWith({
+      projects: [
+        { id: "p-newer", ideaText: "Build a todo app", repoName: "idea-to-mvp-2", createdAt: "2026-09-14T00:00:00.000Z" },
+        { id: "p-older", ideaText: "Build a blog", repoName: "idea-to-mvp-1", createdAt: "2026-09-13T00:00:00.000Z" },
+      ],
+      currentProjectId: "p-newer",
+    });
+  });
+
+  it("reports currentProjectId as null when no run has started", () => {
+    const projectStore = makeProjectStore([]);
+    const controller = { getCurrentProjectId: () => undefined };
+    const { list } = createProjectHandlers(projectStore, controller);
+    const res = makeFakeRes();
+
+    list({} as never, res as never, (() => {}) as never);
+
+    expect(res.json).toHaveBeenCalledWith({ projects: [], currentProjectId: null });
+  });
+
+  it("gets a single project record including its events", () => {
+    const projectStore = makeProjectStore([older]);
+    const controller = { getCurrentProjectId: () => undefined };
+    const { get } = createProjectHandlers(projectStore, controller);
+    const res = makeFakeRes();
+
+    get({ params: { id: "p-older" } } as never, res as never, (() => {}) as never);
+
+    expect(res.json).toHaveBeenCalledWith(older);
+  });
+
+  it("404s for an unknown project id", () => {
+    const projectStore = makeProjectStore([]);
+    const controller = { getCurrentProjectId: () => undefined };
+    const { get } = createProjectHandlers(projectStore, controller);
+    const res = makeFakeRes();
+
+    get({ params: { id: "nope" } } as never, res as never, (() => {}) as never);
+
+    expect(res.status).toHaveBeenCalledWith(404);
   });
 });

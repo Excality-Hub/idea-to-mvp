@@ -10,7 +10,7 @@ async function postRunAction(path: string): Promise<void> {
 }
 
 export function StageNode({ data }: NodeProps<StageFlowNode>) {
-  const { stage, label, status, latestEvent } = data;
+  const { stage, label, status, latestEvent, readOnly } = data;
   const config = STAGE_STATUS_CONFIG[status];
   const Icon = config.icon;
   const abortable = isAbortableStage(stage);
@@ -39,7 +39,7 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
             </p>
           </div>
         </button>
-        {abortable && status === "running" && (
+        {abortable && status === "running" && !readOnly && (
           <Button
             type="button"
             variant="destructive"
@@ -52,7 +52,7 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
             Stop
           </Button>
         )}
-        {isGate && status === "stopped" && (
+        {isGate && status === "stopped" && !readOnly && (
           <div className="flex gap-2">
             <Button
               type="button"
@@ -77,7 +77,7 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
             </Button>
           </div>
         )}
-        {abortable && status === "stopped" && (
+        {abortable && status === "stopped" && !readOnly && (
           <Button
             type="button"
             size="sm"
