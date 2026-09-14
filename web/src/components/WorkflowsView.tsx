@@ -1,21 +1,18 @@
 import { useMemo, useState } from "react";
-import { Controls, ReactFlow, ReactFlowProvider } from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
 import { Button } from "@/components/ui/button";
-import { StageNode } from "@/components/StageNode";
 import { StageDetailSheet } from "@/components/StageDetailSheet";
+import { StageFlowGraph } from "@/components/StageFlowGraph";
 import { useAgents } from "@/hooks/useAgents";
 import { useRunPlan } from "@/hooks/useRunPlan";
 import { useWorkflows } from "@/hooks/useWorkflows";
 import { deriveOverallStatus, deriveStageStatus, type EventsByStage } from "@/lib/runEvents";
-import { buildStageEdges, buildStageNodes, getStageLabel } from "@/lib/workflowGraph";
+import { getStageLabel } from "@/lib/workflowGraph";
 import type { StageName } from "@/types";
 
 interface WorkflowsViewProps {
   eventsByStage: EventsByStage;
 }
 
-const nodeTypes = { stage: StageNode };
 const TERMINAL_STATUSES = new Set(["deployed", "blocked", "failed"]);
 
 export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
@@ -36,9 +33,6 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
   const agentsById = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a])), [agents]);
   const stageOrder = useRunPlan(isIdle, runGeneration);
   const labelFor = useMemo(() => (stage: StageName) => getStageLabel(stage, agentsById), [agentsById]);
-
-  const nodes = useMemo(() => buildStageNodes(eventsByStage, stageOrder, labelFor), [eventsByStage, stageOrder, labelFor]);
-  const edges = useMemo(() => buildStageEdges(eventsByStage, stageOrder), [eventsByStage, stageOrder]);
 
   const selectedEvents = selectedStage ? (eventsByStage[selectedStage] ?? []) : [];
 
@@ -108,24 +102,12 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card">
-          <ReactFlowProvider>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              onNodeClick={(_, node) => setSelectedStage(node.data.stage)}
-              fitView
-              // Node count varies with the resolved plan; minZoom is lowered so fitView can
-              // always zoom out far enough to frame every stage, however many there are.
-              minZoom={0.1}
-              nodesDraggable={false}
-              nodesConnectable={false}
-              nodesFocusable={false}
-              elementsSelectable={false}
-            >
-              <Controls showInteractive={false} />
-            </ReactFlow>
-          </ReactFlowProvider>
+          <StageFlowGraph
+            eventsByStage={eventsByStage}
+            stageOrder={stageOrder}
+            labelFor={labelFor}
+            onSelectStage={setSelectedStage}
+          />
         </div>
       )}
       <StageDetailSheet
