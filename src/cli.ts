@@ -20,6 +20,7 @@ import { GithubClient } from "./github/client.js";
 import { readStarterFiles } from "./github/readStarterFiles.js";
 import { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch, resetWorkingTree } from "./git.js";
 import { RunController } from "./orchestrator/runController.js";
+import { createProjectStore } from "./orchestrator/projectStore.js";
 import { createWorkflowStore } from "./orchestrator/workflowStore.js";
 
 async function main(): Promise<void> {
@@ -36,12 +37,14 @@ async function main(): Promise<void> {
       : new RenderClient(config.renderApiKey!, config.renderOwnerId!);
   const agentStore = createAgentStore(fileURLToPath(new URL("../data/agents.json", import.meta.url)));
   const workflowStore = createWorkflowStore(fileURLToPath(new URL("../data/workflows.json", import.meta.url)));
+  const projectStore = createProjectStore(fileURLToPath(new URL("../data/projects.json", import.meta.url)));
   const controller = new RunController({
     owner: config.targetGithubOwner,
     starterDir,
     githubToken: config.githubToken,
     agentStore,
     workflowStore,
+    projectStore,
     deps: {
       github: new GithubClient(octokit),
       deploy: deployClient,
@@ -61,7 +64,7 @@ async function main(): Promise<void> {
     console.log(`[${event.stage}] ${event.status}: ${event.message}`);
   });
 
-  const app = createDashboardServer(controller, agentStore, workflowStore);
+  const app = createDashboardServer(controller, agentStore, workflowStore, projectStore);
   app.listen(config.port, "127.0.0.1", () => {
     console.log(`Dashboard listening on http://localhost:${config.port}`);
   });
