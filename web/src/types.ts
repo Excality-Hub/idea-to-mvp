@@ -164,3 +164,13 @@ export interface WorkflowDefinition {
   slots: Partial<Record<BackboneStage, string[]>>;
   createdAt: string;
 }
+
+export interface ProjectRecord {
+  id: string;
+  ideaText: string;
+  repoName: string;
+  createdAt: string;
+  events: RunEvent[];
+}
+
+export type ProjectSummary = Omit<ProjectRecord, "events">;
