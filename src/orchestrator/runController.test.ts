@@ -6,6 +6,8 @@ import type { WorkflowDefinition, StageName } from "./types.js";
 import type { AgentDefinition } from "../agents/types.js";
 import type { AgentStore } from "../agents/agentStore.js";
 import type { WorkflowStore } from "./workflowStore.js";
+import type { ProjectRecord } from "./projectStore.js";
+import type { ProjectStore } from "./projectStore.js";
 
 function makeAgentStore(agents: AgentDefinition[] = []): AgentStore {
   return {
@@ -43,6 +45,27 @@ function waitForStage(bus: RunEventBus, stage: StageName, status: string): Promi
       }
     });
   });
+}
+
+function makeProjectStore(): ProjectStore {
+  const records = new Map<string, ProjectRecord>();
+  return {
+    list: () => Array.from(records.values()),
+    get: (id) => records.get(id),
+    create: (item) => {
+      records.set(item.id, item);
+    },
+    update: (id, item) => {
+      records.set(id, item);
+    },
+    delete: (id) => {
+      records.delete(id);
+    },
+    appendEvent: (id, event) => {
+      const record = records.get(id);
+      if (record) records.set(id, { ...record, events: [...record.events, event] });
+    },
+  };
 }
 
 function makeConfig(): RunControllerConfig {
@@ -96,6 +119,7 @@ function makeConfig(): RunControllerConfig {
     githubToken: "test-token",
     agentStore: makeAgentStore(),
     workflowStore: makeWorkflowStore([DEFAULT_WORKFLOW]),
+    projectStore: makeProjectStore(),
     deps: {
       github: github as never,
       deploy: deploy as never,
@@ -107,6 +131,62 @@ function makeConfig(): RunControllerConfig {
 }
 
 describe("RunController", () => {
+  it("creates a project record with the idea text and repo name when a run starts", async () => {
+    const config = makeConfig();
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app");
+    const projectId = controller.getCurrentProjectId();
+
+    expect(projectId).toBeDefined();
+    const record = config.projectStore.get(projectId!);
+    expect(record?.ideaText).toBe("Build a todo app");
+    expect(record?.repoName).toMatch(/^idea-to-mvp-/);
+    await controller.getRunPromise();
+  });
+
+  it("has no current project id before any run starts", () => {
+    const controller = new RunController(makeConfig());
+
+    expect(controller.getCurrentProjectId()).toBeUndefined();
+  });
+
+  it("appends every emitted event to the project record, including across a stop/resume cycle", async () => {
+    const config = makeConfig();
+    let firstAttempt = true;
+    vi.mocked(config.deps.agents.developer).mockImplementation(
+      (_issueBody: string, _cwd: string, signal?: AbortSignal) => {
+        if (!firstAttempt) {
+          return Promise.resolve({
+            output: { prTitle: "t", prBody: "b" },
+            usage: { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, costUsd: 0.001 },
+          });
+        }
+        firstAttempt = false;
+        return new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new AgentStoppedError());
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new AgentStoppedError()));
+        });
+      },
+    );
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app");
+    const projectId = controller.getCurrentProjectId()!;
+    await waitForStage(controller.eventBus, "developer", "running");
+    controller.stop();
+    await controller.getRunPromise();
+    controller.resume();
+    await controller.getRunPromise();
+
+    const record = config.projectStore.get(projectId);
+    expect(record?.events.length).toBeGreaterThan(0);
+    expect(record?.events.some((e) => e.stage === "deploy" && e.status === "done")).toBe(true);
+  });
+
   it("starts a run and completes it", async () => {
     const config = makeConfig();
     const controller = new RunController(config);

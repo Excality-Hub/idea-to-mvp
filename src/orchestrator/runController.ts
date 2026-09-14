@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { RunEventBus } from "./events.js";
 import {
   buildStageSteps,
@@ -13,6 +14,7 @@ import {
 } from "./runOrchestrator.js";
 import type { AgentStore } from "../agents/agentStore.js";
 import { DEFAULT_WORKFLOW_ID, type WorkflowStore } from "./workflowStore.js";
+import type { ProjectStore } from "./projectStore.js";
 import {
   BACKBONE_STAGES,
   isGateEntry,
@@ -31,6 +33,7 @@ export interface RunControllerConfig {
   githubToken: string;
   agentStore: AgentStore;
   workflowStore: WorkflowStore;
+  projectStore: ProjectStore;
   deps: Omit<OrchestratorDeps, "eventBus">;
 }
 
@@ -43,6 +46,7 @@ export class RunController {
   private runPromise: Promise<RunOutcome> | undefined;
   private busReplacedEmitter = new EventEmitter();
   private plan: StageName[] | undefined;
+  private currentProjectId: string | undefined;
 
   constructor(private config: RunControllerConfig) {}
 
@@ -56,6 +60,10 @@ export class RunController {
 
   getPlan(): StageName[] | undefined {
     return this.plan;
+  }
+
+  getCurrentProjectId(): string | undefined {
+    return this.currentProjectId;
   }
 
   onBusReplaced(listener: () => void): () => void {
@@ -97,6 +105,17 @@ export class RunController {
       githubToken: this.config.githubToken,
       resolvedWorkflow,
     };
+    this.currentProjectId = randomUUID();
+    this.config.projectStore.create({
+      id: this.currentProjectId,
+      ideaText,
+      repoName: params.repoName,
+      createdAt: new Date().toISOString(),
+      events: [],
+    });
+    this.eventBus.onEvent((event) => {
+      this.config.projectStore.appendEvent(this.currentProjectId!, event);
+    });
     this.runFrom(params, undefined);
   }
 
