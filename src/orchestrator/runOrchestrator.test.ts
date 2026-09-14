@@ -243,6 +243,39 @@ describe("runOrchestrator", () => {
     expect(content).toContain("## developer");
   });
 
+  it("retries a stage after a transient error and completes the run once it succeeds", async () => {
+    const deps = makeDeps({ sleep: vi.fn().mockResolvedValue(undefined) });
+    vi.mocked(deps.agents.developer)
+      .mockRejectedValueOnce(Object.assign(new Error("Bad Gateway"), { status: 502 }))
+      .mockResolvedValueOnce({
+        output: { prTitle: "Add task tracking", prBody: "Done" },
+        usage: fakeUsage,
+      });
+    const events: RunEvent[] = [];
+    deps.eventBus.onEvent((event) => events.push(event));
+
+    const outcome = await runOrchestrator(params, deps);
+
+    expect(outcome.status).toBe("deployed");
+    expect(deps.agents.developer).toHaveBeenCalledTimes(2);
+    expect(deps.sleep).toHaveBeenCalledTimes(1);
+    expect(events.some((e) => e.stage === "developer" && e.status === "failed")).toBe(false);
+    expect(
+      events.some((e) => e.stage === "developer" && e.status === "running" && e.message.includes("Retrying")),
+    ).toBe(true);
+  });
+
+  it("does not retry a non-transient stage failure", async () => {
+    const deps = makeDeps({ sleep: vi.fn().mockResolvedValue(undefined) });
+    vi.mocked(deps.agents.developer).mockRejectedValue(new Error("claude -p crashed"));
+
+    const outcome = await runOrchestrator(params, deps);
+
+    expect(outcome).toEqual({ status: "failed", stage: "developer", error: "claude -p crashed" });
+    expect(deps.agents.developer).toHaveBeenCalledTimes(1);
+    expect(deps.sleep).not.toHaveBeenCalled();
+  });
+
   it("records the qa stage's tracing-pack input as none (not the previous open_pr stage's input) when qa fails before computing the diff", async () => {
     const deps = makeDeps();
     vi.mocked(deps.git.diffAgainstBase).mockRejectedValue(new Error("git diff failed"));
@@ -402,11 +435,14 @@ describe("runOrchestrator", () => {
         slots: {
           analyst: [
             {
-              id: "sec-1",
-              name: "Security Reviewer",
-              instructions: "Look for auth bypass issues.",
-              repoAccess: true,
-              createdAt: "2026-09-10T00:00:00.000Z",
+              kind: "agent",
+              agent: {
+                id: "sec-1",
+                name: "Security Reviewer",
+                instructions: "Look for auth bypass issues.",
+                repoAccess: true,
+                createdAt: "2026-09-10T00:00:00.000Z",
+              },
             },
           ],
         },
@@ -441,11 +477,14 @@ describe("runOrchestrator", () => {
         slots: {
           create_repo: [
             {
-              id: "repo-checker",
-              name: "Repo Checker",
-              instructions: "Sanity-check the new repo.",
-              repoAccess: false,
-              createdAt: "2026-09-10T00:00:00.000Z",
+              kind: "agent",
+              agent: {
+                id: "repo-checker",
+                name: "Repo Checker",
+                instructions: "Sanity-check the new repo.",
+                repoAccess: false,
+                createdAt: "2026-09-10T00:00:00.000Z",
+              },
             },
           ],
         },
@@ -477,11 +516,14 @@ describe("runOrchestrator", () => {
         slots: {
           analyst: [
             {
-              id: "repo-agent",
-              name: "Repo Reader",
-              instructions: "Read the repo.",
-              repoAccess: true,
-              createdAt: "2026-09-10T00:00:00.000Z",
+              kind: "agent",
+              agent: {
+                id: "repo-agent",
+                name: "Repo Reader",
+                instructions: "Read the repo.",
+                repoAccess: true,
+                createdAt: "2026-09-10T00:00:00.000Z",
+              },
             },
           ],
         },
@@ -509,11 +551,14 @@ describe("runOrchestrator", () => {
         slots: {
           analyst: [
             {
-              id: "text-agent",
-              name: "Brainstormer",
-              instructions: "Suggest ideas.",
-              repoAccess: false,
-              createdAt: "2026-09-10T00:00:00.000Z",
+              kind: "agent",
+              agent: {
+                id: "text-agent",
+                name: "Brainstormer",
+                instructions: "Suggest ideas.",
+                repoAccess: false,
+                createdAt: "2026-09-10T00:00:00.000Z",
+              },
             },
           ],
         },
@@ -532,6 +577,120 @@ describe("runOrchestrator", () => {
     expect(cloneCallsAtCustomDone).toBe(0);
     // developer's own clone-once guard still fires later in the same run.
     expect(deps.git.cloneRepo).toHaveBeenCalledTimes(1);
+  });
+
+  it("pauses at a gate and waits for a decision, without committing a tracing pack", async () => {
+    const deps = makeDeps();
+    const events: string[] = [];
+    deps.eventBus.onEvent((event) => events.push(`${event.stage}:${event.status}`));
+    const workflowParams: OrchestratorParams = {
+      ...params,
+      resolvedWorkflow: {
+        slots: {
+          analyst: [{ kind: "gate", id: "g1" }],
+        },
+      },
+    };
+
+    const outcome = await runOrchestrator(workflowParams, deps);
+
+    expect(outcome.status).toBe("stopped");
+    if (outcome.status === "stopped") {
+      expect(outcome.stage).toBe("gate:g1");
+      expect(outcome.resumeState.ctx.gateDecisions).toBeUndefined();
+    }
+    expect(events).toContain("gate:g1:running");
+    expect(events).toContain("gate:g1:stopped");
+    expect(deps.github.commitFile).not.toHaveBeenCalled();
+  });
+
+  it("continues past a gate once its decision is recorded as approved on resume", async () => {
+    const deps = makeDeps();
+    const workflowParams: OrchestratorParams = {
+      ...params,
+      resolvedWorkflow: {
+        slots: {
+          analyst: [{ kind: "gate", id: "g1" }],
+        },
+      },
+    };
+    const stopped = await runOrchestrator(workflowParams, deps);
+    if (stopped.status !== "stopped") throw new Error("expected a stopped outcome");
+    stopped.resumeState.ctx.gateDecisions = { g1: "approved" };
+
+    const outcome = await runOrchestrator(workflowParams, deps, stopped.resumeState);
+
+    expect(outcome.status).toBe("deployed");
+  });
+
+  it("ends the run blocked when a gate's decision is recorded as rejected on resume, and commits the tracing pack", async () => {
+    const deps = makeDeps();
+    const workflowParams: OrchestratorParams = {
+      ...params,
+      resolvedWorkflow: {
+        slots: {
+          analyst: [{ kind: "gate", id: "g1" }],
+        },
+      },
+    };
+    const stopped = await runOrchestrator(workflowParams, deps);
+    if (stopped.status !== "stopped") throw new Error("expected a stopped outcome");
+    stopped.resumeState.ctx.gateDecisions = { g1: "rejected" };
+
+    const outcome = await runOrchestrator(workflowParams, deps, stopped.resumeState);
+
+    expect(outcome).toEqual({ status: "gate_rejected", stage: "gate:g1" });
+    expect(deps.github.commitFile).toHaveBeenCalledTimes(1);
+    const [, , , content] = vi.mocked(deps.github.commitFile).mock.calls[0];
+    expect(content).toContain("Outcome: **blocked**");
+    expect(deps.agents.architect).not.toHaveBeenCalled();
+  });
+
+  it("runs a gate and a custom agent placed in the same slot in array order", async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.agents.custom).mockResolvedValue({
+      output: { text: "Looks fine." },
+      usage: fakeUsage,
+    });
+    const workflowParams: OrchestratorParams = {
+      ...params,
+      resolvedWorkflow: {
+        slots: {
+          analyst: [
+            { kind: "gate", id: "g1" },
+            {
+              kind: "agent",
+              agent: {
+                id: "sec-1",
+                name: "Security Reviewer",
+                instructions: "Look for auth bypass issues.",
+                repoAccess: false,
+                createdAt: "2026-09-10T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+      },
+    };
+    const stopped = await runOrchestrator(workflowParams, deps);
+    if (stopped.status !== "stopped") throw new Error("expected a stopped outcome");
+    stopped.resumeState.ctx.gateDecisions = { g1: "approved" };
+    const events: string[] = [];
+    deps.eventBus.onEvent((event) => events.push(`${event.stage}:${event.status}`));
+    // onEvent replays existing history to new listeners (for SSE reconnects), so
+    // the first run's create_repo/analyst events land here before the resumed
+    // run's own events do. Measure from that point, not from index 0.
+    const historyLength = events.length;
+
+    const outcome = await runOrchestrator(workflowParams, deps, stopped.resumeState);
+
+    expect(outcome.status).toBe("deployed");
+    expect(events.slice(historyLength, historyLength + 4)).toEqual([
+      "gate:g1:running",
+      "gate:g1:done",
+      "custom:sec-1:running",
+      "custom:sec-1:done",
+    ]);
   });
 });
 

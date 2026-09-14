@@ -81,6 +81,15 @@ describe("deriveOverallStatus", () => {
     ).toBe("blocked");
   });
 
+  it("is blocked when a gate stage is blocked, not just merge", () => {
+    expect(
+      deriveOverallStatus({
+        analyst: [event({ stage: "analyst", status: "done" })],
+        "gate:g1": [event({ stage: "gate:g1", status: "blocked" })],
+      }),
+    ).toBe("blocked");
+  });
+
   it("is deployed once the deploy stage is done", () => {
     expect(
       deriveOverallStatus({

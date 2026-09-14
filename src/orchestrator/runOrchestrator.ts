@@ -25,6 +25,7 @@ import {
 import { AgentStoppedError, type AgentUsage } from "../claudeAgent.js";
 import type { AgentDefinition } from "../agents/types.js";
 import type { runCustomAgent } from "../agents/custom.js";
+import { withRetry } from "./retry.js";
 
 export interface OrchestratorParams {
   ideaText: string;
@@ -55,6 +56,7 @@ export interface OrchestratorDeps {
     custom: typeof runCustomAgent;
   };
   readStarterFiles: typeof ReadStarterFiles;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const BASE_BRANCH = "main";
@@ -92,6 +94,7 @@ export interface PipelineContext {
   diff?: string;
   qaOutput?: QAOutput;
   deployUrl?: string;
+  gateDecisions?: Record<string, "approved" | "rejected">;
 }
 
 export interface ResumeState {
@@ -102,8 +105,12 @@ export interface ResumeState {
 export type RunOutcome =
   | { status: "deployed"; url: string; prUrl: string }
   | { status: "blocked"; findings: QAFinding[]; prUrl: string }
+  | { status: "gate_rejected"; stage: StageName }
   | { status: "failed"; stage: StageName; error: string }
   | { status: "stopped"; stage: StageName; resumeState: ResumeState };
+
+class GateWaitingError extends Error {}
+class GateRejectedError extends Error {}
 
 interface StageStep {
   name: StageName;
@@ -360,12 +367,35 @@ function buildCustomStep(agent: AgentDefinition): StageStep {
   };
 }
 
+function buildGateStep(id: string): StageStep {
+  const stageName = `gate:${id}` as StageName;
+  return {
+    name: stageName,
+    abortable: false,
+    async run(ctx, _params, deps) {
+      deps.eventBus.emit(stageEvent(stageName, "running", "Awaiting review"));
+      const decision = ctx.gateDecisions?.[id];
+      if (decision === "approved") {
+        deps.eventBus.emit(stageEvent(stageName, "done", "Approved"));
+        ctx.tracingEntries.push({ stage: stageName, status: "done", output: { decision } });
+        return;
+      }
+      if (decision === "rejected") {
+        throw new GateRejectedError();
+      }
+      throw new GateWaitingError();
+    },
+  };
+}
+
 export function buildStageSteps(resolvedWorkflow: ResolvedWorkflow): StageStep[] {
   const steps: StageStep[] = [];
   for (const step of BACKBONE_STEPS) {
     steps.push(step);
     const afterThisStage = resolvedWorkflow.slots[step.name as BackboneStage] ?? [];
-    steps.push(...afterThisStage.map(buildCustomStep));
+    for (const entry of afterThisStage) {
+      steps.push(entry.kind === "gate" ? buildGateStep(entry.id) : buildCustomStep(entry.agent));
+    }
   }
   return steps;
 }
@@ -422,11 +452,30 @@ export async function runOrchestrator(
     const controller = step.abortable ? new AbortController() : undefined;
     if (step.abortable) onAbortableStep?.(controller);
     try {
-      await step.run(ctx, params, deps, controller?.signal);
+      await withRetry(() => step.run(ctx, params, deps, controller?.signal), {
+        sleep: deps.sleep,
+        signal: controller?.signal,
+        onRetry: (attempt, maxAttempts, error) => {
+          deps.eventBus.emit(
+            stageEvent(
+              currentStage,
+              "running",
+              `Retrying ${currentStage} (attempt ${attempt}/${maxAttempts}) after transient error: ${error.message}`,
+            ),
+          );
+        },
+      });
     } catch (error) {
-      if (error instanceof AgentStoppedError) {
-        deps.eventBus.emit(stageEvent(currentStage, "stopped", "Stopped by user"));
+      if (error instanceof AgentStoppedError || error instanceof GateWaitingError) {
+        const message = error instanceof GateWaitingError ? "Waiting for approval" : "Stopped by user";
+        deps.eventBus.emit(stageEvent(currentStage, "stopped", message));
         return { status: "stopped", stage: currentStage, resumeState: { stageIndex: i, ctx } };
+      }
+      if (error instanceof GateRejectedError) {
+        deps.eventBus.emit(stageEvent(currentStage, "blocked", "Rejected by reviewer"));
+        ctx.tracingEntries.push({ stage: currentStage, status: "blocked" });
+        await commitTracingPack("blocked");
+        return { status: "gate_rejected", stage: currentStage };
       }
       const err = error as Error;
       deps.eventBus.emit(stageEvent(currentStage, "failed", err.message));

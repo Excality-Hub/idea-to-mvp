@@ -5,18 +5,27 @@ import { Button } from "@/components/ui/button";
 import { useAgents } from "@/hooks/useAgents";
 import {
   buildPipelineGraph,
-  insertAgent,
-  removeAgent,
+  insertEntry,
+  removeEntry,
   type BackboneNodeData,
   type CustomAgentNodeData,
+  type GateNodeData,
   type InsertionPointNodeData,
   type PipelineFlowNode,
   type SlotsState,
 } from "@/lib/pipelineCanvas";
 import { cn } from "@/lib/utils";
-import { BACKBONE_STAGES, DATA_KIND_LABELS, type AgentDefinition, type BackboneStage, type WorkflowDefinition } from "@/types";
+import {
+  BACKBONE_STAGES,
+  DATA_KIND_LABELS,
+  GATE_ID_PREFIX,
+  type AgentDefinition,
+  type BackboneStage,
+  type WorkflowDefinition,
+} from "@/types";
 
 const AGENT_DND_TYPE = "application/x-agent-id";
+const GATE_DND_TYPE = "application/x-gate";
 
 interface PipelineCanvasProps {
   initial?: WorkflowDefinition;
@@ -59,8 +68,30 @@ function CustomAgentNode({ data }: NodeProps<PipelineFlowNode>) {
   );
 }
 
+function GateNode({ data }: NodeProps<PipelineFlowNode>) {
+  const { gateId, onRemove } = data as GateNodeData & { onRemove: () => void };
+  return (
+    <>
+      <Handle type="target" position={Position.Left} className="!bg-border" />
+      <div
+        className="nodrag flex items-center gap-2 rounded-full border border-dashed border-warning bg-muted px-3 py-1.5 text-xs text-foreground"
+        style={{ pointerEvents: "auto" }}
+      >
+        <span>Approval gate</span>
+        <button type="button" onClick={onRemove} aria-label={`Remove gate ${gateId}`}>
+          &times;
+        </button>
+      </div>
+      <Handle type="source" position={Position.Right} className="!bg-border" />
+    </>
+  );
+}
+
 function InsertionPointNode({ data }: NodeProps<PipelineFlowNode>) {
-  const { afterStage, index, onDropAgent } = data as InsertionPointNodeData & { onDropAgent: (agentId: string) => void };
+  const { afterStage, index, onDropAgent, onDropGate } = data as InsertionPointNodeData & {
+    onDropAgent: (agentId: string) => void;
+    onDropGate: () => void;
+  };
   const [isOver, setIsOver] = useState(false);
 
   return (
@@ -77,7 +108,12 @@ function InsertionPointNode({ data }: NodeProps<PipelineFlowNode>) {
           event.preventDefault();
           setIsOver(false);
           const agentId = event.dataTransfer.getData(AGENT_DND_TYPE);
-          if (agentId) onDropAgent(agentId);
+          if (agentId) {
+            onDropAgent(agentId);
+            return;
+          }
+          const gateMarker = event.dataTransfer.getData(GATE_DND_TYPE);
+          if (gateMarker) onDropGate();
         }}
         className={cn(
           "nodrag flex size-7 items-center justify-center rounded-full border-2 border-dashed text-sm text-muted-foreground",
@@ -103,7 +139,7 @@ function EndNode() {
   );
 }
 
-const nodeTypes = { backbone: BackboneNode, custom: CustomAgentNode, insertion: InsertionPointNode, end: EndNode };
+const nodeTypes = { backbone: BackboneNode, custom: CustomAgentNode, gate: GateNode, insertion: InsertionPointNode, end: EndNode };
 
 // Pre-set each node's measured size so React Flow treats it as already
 // measured on first render. Without this, nodes stay `visibility: hidden`
@@ -112,6 +148,7 @@ const nodeTypes = { backbone: BackboneNode, custom: CustomAgentNode, insertion: 
 const NODE_DIMENSIONS: Record<string, { width: number; height: number }> = {
   backbone: { width: 140, height: 36 },
   custom: { width: 140, height: 32 },
+  gate: { width: 140, height: 32 },
   insertion: { width: 28, height: 28 },
   end: { width: 70, height: 36 },
 };
@@ -124,6 +161,18 @@ function PaletteCard({ agent }: { agent: AgentDefinition }) {
       className="cursor-grab rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground active:cursor-grabbing"
     >
       {agent.name}
+    </div>
+  );
+}
+
+function GatePaletteCard() {
+  return (
+    <div
+      draggable
+      onDragStart={(event) => event.dataTransfer.setData(GATE_DND_TYPE, "gate")}
+      className="cursor-grab rounded-lg border border-dashed border-border bg-card px-3 py-2 text-sm text-foreground active:cursor-grabbing"
+    >
+      Approval gate
     </div>
   );
 }
@@ -145,10 +194,13 @@ export function PipelineCanvas({ initial, onSaved, onCancel }: PipelineCanvasPro
   const paletteAgents = agents.filter((agent) => !usedAgentIds.has(agent.id));
 
   const handleInsert = useCallback((afterStage: BackboneStage, index: number, agentId: string) => {
-    setSlots((prev) => insertAgent(prev, afterStage, index, agentId));
+    setSlots((prev) => insertEntry(prev, afterStage, index, agentId));
   }, []);
-  const handleRemove = useCallback((afterStage: BackboneStage, agentId: string) => {
-    setSlots((prev) => removeAgent(prev, afterStage, agentId));
+  const handleInsertGate = useCallback((afterStage: BackboneStage, index: number) => {
+    setSlots((prev) => insertEntry(prev, afterStage, index, `${GATE_ID_PREFIX}${crypto.randomUUID()}`));
+  }, []);
+  const handleRemove = useCallback((afterStage: BackboneStage, entry: string) => {
+    setSlots((prev) => removeEntry(prev, afterStage, entry));
   }, []);
 
   const graph = useMemo(() => buildPipelineGraph(slots, agentsById), [slots, agentsById]);
@@ -161,7 +213,11 @@ export function PipelineCanvas({ initial, onSaved, onCancel }: PipelineCanvasPro
           return {
             ...node,
             ...dimensions,
-            data: { ...data, onDropAgent: (agentId: string) => handleInsert(data.afterStage, data.index, agentId) },
+            data: {
+              ...data,
+              onDropAgent: (agentId: string) => handleInsert(data.afterStage, data.index, agentId),
+              onDropGate: () => handleInsertGate(data.afterStage, data.index),
+            },
           };
         }
         if (node.type === "custom") {
@@ -172,9 +228,17 @@ export function PipelineCanvas({ initial, onSaved, onCancel }: PipelineCanvasPro
             data: { ...data, onRemove: () => handleRemove(data.afterStage, data.agentId) },
           };
         }
+        if (node.type === "gate") {
+          const data = node.data as GateNodeData;
+          return {
+            ...node,
+            ...dimensions,
+            data: { ...data, onRemove: () => handleRemove(data.afterStage, `${GATE_ID_PREFIX}${data.gateId}`) },
+          };
+        }
         return { ...node, ...dimensions };
       }),
-    [graph.nodes, handleInsert, handleRemove],
+    [graph.nodes, handleInsert, handleInsertGate, handleRemove],
   );
 
   async function handleSave() {
@@ -242,6 +306,7 @@ export function PipelineCanvas({ initial, onSaved, onCancel }: PipelineCanvasPro
         <div data-testid="agent-palette" className="flex w-56 shrink-0 flex-col gap-2">
           <h2 className="text-sm font-medium text-foreground">Available agents</h2>
           {agentsError && <p className="text-sm text-destructive">{agentsError}</p>}
+          <GatePaletteCard />
           {paletteAgents.map((agent) => (
             <PaletteCard key={agent.id} agent={agent} />
           ))}

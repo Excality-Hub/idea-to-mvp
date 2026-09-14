@@ -11,10 +11,17 @@ import {
   type ResumeState,
   type RunOutcome,
 } from "./runOrchestrator.js";
-import type { AgentDefinition } from "../agents/types.js";
 import type { AgentStore } from "../agents/agentStore.js";
 import { DEFAULT_WORKFLOW_ID, type WorkflowStore } from "./workflowStore.js";
-import { BACKBONE_STAGES, type BackboneStage, type ResolvedWorkflow, type StageName } from "./types.js";
+import {
+  BACKBONE_STAGES,
+  isGateEntry,
+  parseGateId,
+  type BackboneStage,
+  type ResolvedWorkflow,
+  type SlotEntry,
+  type StageName,
+} from "./types.js";
 
 export type RunControllerStatus = "idle" | "running" | "stopped" | "done";
 
@@ -64,16 +71,17 @@ export class RunController {
     if (!workflow) {
       throw new Error(`Unknown workflow: ${workflowId}`);
     }
-    const resolveAgents = (ids: string[]): AgentDefinition[] =>
+    const resolveEntries = (ids: string[]): SlotEntry[] =>
       ids.map((id) => {
+        if (isGateEntry(id)) return { kind: "gate", id: parseGateId(id) };
         const agent = this.config.agentStore.get(id);
         if (!agent) throw new Error(`Unknown agent: ${id}`);
-        return agent;
+        return { kind: "agent", agent };
       });
     const resolvedWorkflow: ResolvedWorkflow = {
       slots: Object.fromEntries(
-        BACKBONE_STAGES.map((stage) => [stage, resolveAgents(workflow.slots[stage] ?? [])]),
-      ) as Partial<Record<BackboneStage, AgentDefinition[]>>,
+        BACKBONE_STAGES.map((stage) => [stage, resolveEntries(workflow.slots[stage] ?? [])]),
+      ) as Partial<Record<BackboneStage, SlotEntry[]>>,
     };
     if (this.status === "done") {
       this.eventBus = new RunEventBus();
@@ -103,6 +111,20 @@ export class RunController {
     if (this.status !== "stopped" || !this.snapshot) {
       throw new Error("No stopped run to resume");
     }
+    this.status = "running";
+    this.runFrom(this.snapshot.params, this.snapshot.resumeState);
+  }
+
+  decideGate(gateId: string, decision: "approved" | "rejected"): void {
+    if (this.status !== "stopped" || !this.snapshot) {
+      throw new Error("No stopped run to decide");
+    }
+    const stageIndex = this.snapshot.resumeState.stageIndex;
+    if (this.plan?.[stageIndex] !== `gate:${gateId}`) {
+      throw new Error(`Gate ${gateId} is not the run's current stopped stage`);
+    }
+    const ctx = this.snapshot.resumeState.ctx;
+    ctx.gateDecisions = { ...ctx.gateDecisions, [gateId]: decision };
     this.status = "running";
     this.runFrom(this.snapshot.params, this.snapshot.resumeState);
   }

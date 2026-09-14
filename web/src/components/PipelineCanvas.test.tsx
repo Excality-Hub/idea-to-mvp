@@ -31,6 +31,13 @@ function dataTransferWith(agentId: string) {
   return { getData: () => agentId, setData: () => {} } as unknown as DataTransfer;
 }
 
+function gateDataTransfer() {
+  return {
+    getData: (type: string) => (type === "application/x-gate" ? "gate" : ""),
+    setData: () => {},
+  } as unknown as DataTransfer;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -81,6 +88,30 @@ describe("PipelineCanvas", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: /Remove Agent A/ }));
 
     expect(within(screen.getByTestId("agent-palette")).getByText("Agent A")).toBeInTheDocument();
+  });
+
+  it("drops the Approval gate palette card onto an insertion point", async () => {
+    stubFetch();
+
+    render(<PipelineCanvas onSaved={() => {}} onCancel={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("insertion-create_repo-0")).toBeInTheDocument());
+
+    fireEvent.drop(screen.getByTestId("insertion-create_repo-0"), { dataTransfer: gateDataTransfer() });
+
+    expect(screen.getByRole("button", { name: /Remove gate/ })).toBeInTheDocument();
+  });
+
+  it("removes a placed gate", async () => {
+    stubFetch();
+
+    render(<PipelineCanvas onSaved={() => {}} onCancel={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("insertion-create_repo-0")).toBeInTheDocument());
+    fireEvent.drop(screen.getByTestId("insertion-create_repo-0"), { dataTransfer: gateDataTransfer() });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Remove gate/ })).toBeInTheDocument());
+
+    await userEvent.setup().click(screen.getByRole("button", { name: /Remove gate/ }));
+
+    expect(screen.queryByRole("button", { name: /Remove gate/ })).not.toBeInTheDocument();
   });
 
   it("saves a new pipeline via POST and calls onSaved", async () => {
