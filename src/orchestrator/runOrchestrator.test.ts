@@ -243,6 +243,39 @@ describe("runOrchestrator", () => {
     expect(content).toContain("## developer");
   });
 
+  it("retries a stage after a transient error and completes the run once it succeeds", async () => {
+    const deps = makeDeps({ sleep: vi.fn().mockResolvedValue(undefined) });
+    vi.mocked(deps.agents.developer)
+      .mockRejectedValueOnce(Object.assign(new Error("Bad Gateway"), { status: 502 }))
+      .mockResolvedValueOnce({
+        output: { prTitle: "Add task tracking", prBody: "Done" },
+        usage: fakeUsage,
+      });
+    const events: RunEvent[] = [];
+    deps.eventBus.onEvent((event) => events.push(event));
+
+    const outcome = await runOrchestrator(params, deps);
+
+    expect(outcome.status).toBe("deployed");
+    expect(deps.agents.developer).toHaveBeenCalledTimes(2);
+    expect(deps.sleep).toHaveBeenCalledTimes(1);
+    expect(events.some((e) => e.stage === "developer" && e.status === "failed")).toBe(false);
+    expect(
+      events.some((e) => e.stage === "developer" && e.status === "running" && e.message.includes("Retrying")),
+    ).toBe(true);
+  });
+
+  it("does not retry a non-transient stage failure", async () => {
+    const deps = makeDeps({ sleep: vi.fn().mockResolvedValue(undefined) });
+    vi.mocked(deps.agents.developer).mockRejectedValue(new Error("claude -p crashed"));
+
+    const outcome = await runOrchestrator(params, deps);
+
+    expect(outcome).toEqual({ status: "failed", stage: "developer", error: "claude -p crashed" });
+    expect(deps.agents.developer).toHaveBeenCalledTimes(1);
+    expect(deps.sleep).not.toHaveBeenCalled();
+  });
+
   it("records the qa stage's tracing-pack input as none (not the previous open_pr stage's input) when qa fails before computing the diff", async () => {
     const deps = makeDeps();
     vi.mocked(deps.git.diffAgainstBase).mockRejectedValue(new Error("git diff failed"));

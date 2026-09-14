@@ -25,6 +25,7 @@ import {
 import { AgentStoppedError, type AgentUsage } from "../claudeAgent.js";
 import type { AgentDefinition } from "../agents/types.js";
 import type { runCustomAgent } from "../agents/custom.js";
+import { withRetry } from "./retry.js";
 
 export interface OrchestratorParams {
   ideaText: string;
@@ -55,6 +56,7 @@ export interface OrchestratorDeps {
     custom: typeof runCustomAgent;
   };
   readStarterFiles: typeof ReadStarterFiles;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const BASE_BRANCH = "main";
@@ -450,7 +452,19 @@ export async function runOrchestrator(
     const controller = step.abortable ? new AbortController() : undefined;
     if (step.abortable) onAbortableStep?.(controller);
     try {
-      await step.run(ctx, params, deps, controller?.signal);
+      await withRetry(() => step.run(ctx, params, deps, controller?.signal), {
+        sleep: deps.sleep,
+        signal: controller?.signal,
+        onRetry: (attempt, maxAttempts, error) => {
+          deps.eventBus.emit(
+            stageEvent(
+              currentStage,
+              "running",
+              `Retrying ${currentStage} (attempt ${attempt}/${maxAttempts}) after transient error: ${error.message}`,
+            ),
+          );
+        },
+      });
     } catch (error) {
       if (error instanceof AgentStoppedError || error instanceof GateWaitingError) {
         const message = error instanceof GateWaitingError ? "Waiting for approval" : "Stopped by user";
