@@ -61,6 +61,7 @@ export function parseGateId(id: string): string {
 
 export interface WorkflowDefinition {
   id: string;
+  projectId: string;
   name: string;
   slots: Partial<Record<BackboneStage, string[]>>;
   createdAt: string;

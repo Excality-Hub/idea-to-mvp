@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createWorkflowStore, DEFAULT_WORKFLOW_ID } from "./workflowStore.js";
+import { createDefaultWorkflow, createWorkflowStore, defaultWorkflowIdFor } from "./workflowStore.js";
 
 function tempFile(): string {
   const dir = mkdtempSync(join(tmpdir(), "workflow-store-test-"));
@@ -10,30 +10,36 @@ function tempFile(): string {
 }
 
 describe("createWorkflowStore", () => {
-  it("seeds a default workflow with empty slots when the file doesn't exist yet", () => {
+  it("starts empty when the file doesn't exist yet (no more global auto-seeding)", () => {
     const store = createWorkflowStore(tempFile());
 
-    const workflows = store.list();
-    expect(workflows).toHaveLength(1);
-    expect(workflows[0]).toMatchObject({
-      id: DEFAULT_WORKFLOW_ID,
-      name: "Default",
-      slots: {},
-    });
+    expect(store.list()).toEqual([]);
   });
 
-  it("creates and lists an additional workflow alongside the default", () => {
+  it("creates and lists workflows scoped by project", () => {
     const store = createWorkflowStore(tempFile());
-    const workflow = {
-      id: "with-review",
-      name: "With security review",
-      slots: { architect: ["sec-1"] },
-      createdAt: "2026-09-10T00:00:00.000Z",
-    };
+    store.create({ id: "w1", projectId: "p1", name: "With review", slots: { architect: ["sec-1"] }, createdAt: "2026-09-10T00:00:00.000Z" });
+    store.create({ id: "w2", projectId: "p2", name: "Other project's", slots: {}, createdAt: "2026-09-10T00:01:00.000Z" });
 
-    store.create(workflow);
+    expect(store.listByProject("p1").map((w) => w.id)).toEqual(["w1"]);
+    expect(store.listByProject("p2").map((w) => w.id)).toEqual(["w2"]);
+    expect(store.listByProject("nope")).toEqual([]);
+  });
+});
 
-    expect(store.list().map((w) => w.id)).toEqual([DEFAULT_WORKFLOW_ID, "with-review"]);
-    expect(store.get("with-review")).toEqual(workflow);
+describe("defaultWorkflowIdFor", () => {
+  it("derives a deterministic id from the project id", () => {
+    expect(defaultWorkflowIdFor("p1")).toBe("p1-default");
+  });
+});
+
+describe("createDefaultWorkflow", () => {
+  it("builds a fresh Default workflow owned by the given project, with empty slots", () => {
+    const workflow = createDefaultWorkflow("p1");
+
+    expect(workflow.id).toBe("p1-default");
+    expect(workflow.projectId).toBe("p1");
+    expect(workflow.name).toBe("Default");
+    expect(workflow.slots).toEqual({});
   });
 });

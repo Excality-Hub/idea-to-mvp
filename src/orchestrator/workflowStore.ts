@@ -1,17 +1,32 @@
 import { createJsonStore, type JsonStore } from "../jsonStore.js";
 import type { WorkflowDefinition } from "./types.js";
 
-export type WorkflowStore = JsonStore<WorkflowDefinition>;
-
-export const DEFAULT_WORKFLOW_ID = "default";
-
-const DEFAULT_WORKFLOW: WorkflowDefinition = {
-  id: DEFAULT_WORKFLOW_ID,
-  name: "Default",
-  slots: {},
-  createdAt: new Date(0).toISOString(),
+export type WorkflowStore = JsonStore<WorkflowDefinition> & {
+  listByProject(projectId: string): WorkflowDefinition[];
 };
 
+const DEFAULT_WORKFLOW_SUFFIX = "-default";
+
+export function defaultWorkflowIdFor(projectId: string): string {
+  return `${projectId}${DEFAULT_WORKFLOW_SUFFIX}`;
+}
+
+export function createDefaultWorkflow(projectId: string): WorkflowDefinition {
+  return {
+    id: defaultWorkflowIdFor(projectId),
+    projectId,
+    name: "Default",
+    slots: {},
+    createdAt: new Date().toISOString(),
+  };
+}
+
 export function createWorkflowStore(filePath: string): WorkflowStore {
-  return createJsonStore<WorkflowDefinition>(filePath, [DEFAULT_WORKFLOW]);
+  const base = createJsonStore<WorkflowDefinition>(filePath, []);
+  return {
+    ...base,
+    listByProject(projectId) {
+      return base.list().filter((workflow) => workflow.projectId === projectId);
+    },
+  };
 }
