@@ -1,8 +1,8 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ProjectHistoryView } from "./ProjectHistoryView";
-import type { ProjectRecord } from "@/types";
+import { RunDetailView } from "./RunDetailView";
+import type { Run } from "@/types";
 
 function stubFetch(agents: unknown[] = []) {
   vi.stubGlobal(
@@ -22,10 +22,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const project: ProjectRecord = {
-  id: "p1",
+const run: Run = {
+  id: "r1",
+  projectId: "p1",
   ideaText: "Build a todo app",
-  repoName: "idea-to-mvp-1",
+  workflowId: "p1-default",
   createdAt: "2026-01-01T00:00:00.000Z",
   events: [
     { stage: "analyst", status: "running", message: "Analyzing idea", timestamp: "2026-01-01T00:00:00.000Z" },
@@ -34,9 +35,9 @@ const project: ProjectRecord = {
   ],
 };
 
-describe("ProjectHistoryView", () => {
+describe("RunDetailView", () => {
   it("renders the idea text as the heading and a node per recorded stage, in first-seen order", async () => {
-    render(<ProjectHistoryView project={project} />);
+    render(<RunDetailView run={run} />);
 
     expect(screen.getByRole("heading", { name: "Build a todo app" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Analyst")).toBeInTheDocument());
@@ -45,7 +46,7 @@ describe("ProjectHistoryView", () => {
 
   it("opens the detail sheet with a stage's recorded events on click, and shows no start form", async () => {
     const user = userEvent.setup();
-    render(<ProjectHistoryView project={project} />);
+    render(<RunDetailView run={run} />);
     await waitFor(() => expect(screen.getByText("Analyst")).toBeInTheDocument());
 
     await user.click(screen.getByText("Analyst"));
@@ -56,18 +57,19 @@ describe("ProjectHistoryView", () => {
     expect(screen.queryByLabelText("Idea & requirements")).not.toBeInTheDocument();
   });
 
-  it("renders no Stop/Resume/Approve/Reject controls and never calls /api/run, even when the last recorded event for a stage is running or stopped", async () => {
+  it("renders no Stop/Resume/Approve/Reject controls and never calls /api/projects/.../run, even when the last recorded event for a stage is running or stopped", async () => {
     const fetchMock = vi.fn((url: string) => {
       if (url === "/api/agents") return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-      if (url.includes("/api/run")) return Promise.reject(new Error(`unexpected live-run call to ${url}`));
+      if (url.includes("/run")) return Promise.reject(new Error(`unexpected live-run call to ${url}`));
       return Promise.reject(new Error(`unexpected fetch to ${url}`));
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const projectWithLiveLookingStages: ProjectRecord = {
-      id: "p2",
+    const runWithLiveLookingStages: Run = {
+      id: "r2",
+      projectId: "p1",
       ideaText: "Build a chat app",
-      repoName: "idea-to-mvp-2",
+      workflowId: "p1-default",
       createdAt: "2026-01-02T00:00:00.000Z",
       events: [
         { stage: "developer", status: "running", message: "Writing code", timestamp: "2026-01-02T00:00:00.000Z" },
@@ -76,7 +78,7 @@ describe("ProjectHistoryView", () => {
       ],
     };
 
-    render(<ProjectHistoryView project={projectWithLiveLookingStages} />);
+    render(<RunDetailView run={runWithLiveLookingStages} />);
 
     await waitFor(() => expect(screen.getByText("Developer")).toBeInTheDocument());
     expect(screen.getByText("Approval gate")).toBeInTheDocument();
@@ -92,7 +94,7 @@ describe("ProjectHistoryView", () => {
     expect(screen.queryByText("Reject", { selector: "button" })).not.toBeInTheDocument();
 
     for (const call of fetchMock.mock.calls) {
-      expect(String(call[0])).not.toContain("/api/run");
+      expect(String(call[0])).not.toContain("/run");
     }
   });
 });
