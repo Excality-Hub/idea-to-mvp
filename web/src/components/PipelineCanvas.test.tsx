@@ -46,7 +46,7 @@ describe("PipelineCanvas", () => {
   it("renders all 11 fixed backbone stages and the End node", async () => {
     stubFetch();
 
-    render(<PipelineCanvas onSaved={() => {}} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" onSaved={() => {}} onCancel={() => {}} />);
 
     await waitFor(() => expect(screen.getByText("Analyst")).toBeInTheDocument());
     expect(screen.getByText("Create repo")).toBeInTheDocument();
@@ -57,9 +57,9 @@ describe("PipelineCanvas", () => {
 
   it("shows agents not yet placed in the palette, and excludes a placed one", async () => {
     stubFetch();
-    const initial = { id: "w1", name: "Existing", slots: { analyst: ["a"] }, createdAt: "2026-01-01T00:00:00.000Z" };
+    const initial = { id: "w1", projectId: "p1", name: "Existing", slots: { analyst: ["a"] }, createdAt: "2026-01-01T00:00:00.000Z" };
 
-    render(<PipelineCanvas initial={initial} onSaved={() => {}} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" initial={initial} onSaved={() => {}} onCancel={() => {}} />);
 
     await waitFor(() => expect(within(screen.getByTestId("agent-palette")).getByText("Agent B")).toBeInTheDocument());
     expect(within(screen.getByTestId("agent-palette")).queryByText("Agent A")).not.toBeInTheDocument();
@@ -69,7 +69,7 @@ describe("PipelineCanvas", () => {
   it("drops a palette agent onto an insertion point after create_repo", async () => {
     stubFetch();
 
-    render(<PipelineCanvas onSaved={() => {}} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" onSaved={() => {}} onCancel={() => {}} />);
     await waitFor(() => expect(screen.getByTestId("insertion-create_repo-0")).toBeInTheDocument());
 
     fireEvent.drop(screen.getByTestId("insertion-create_repo-0"), { dataTransfer: dataTransferWith("a") });
@@ -80,9 +80,9 @@ describe("PipelineCanvas", () => {
 
   it("removes a placed agent back to the palette", async () => {
     stubFetch();
-    const initial = { id: "w1", name: "Existing", slots: { analyst: ["a"] }, createdAt: "2026-01-01T00:00:00.000Z" };
+    const initial = { id: "w1", projectId: "p1", name: "Existing", slots: { analyst: ["a"] }, createdAt: "2026-01-01T00:00:00.000Z" };
 
-    render(<PipelineCanvas initial={initial} onSaved={() => {}} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" initial={initial} onSaved={() => {}} onCancel={() => {}} />);
     await waitFor(() => expect(screen.getByText("Agent A")).toBeInTheDocument());
 
     await userEvent.setup().click(screen.getByRole("button", { name: /Remove Agent A/ }));
@@ -93,7 +93,7 @@ describe("PipelineCanvas", () => {
   it("drops the Approval gate palette card onto an insertion point", async () => {
     stubFetch();
 
-    render(<PipelineCanvas onSaved={() => {}} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" onSaved={() => {}} onCancel={() => {}} />);
     await waitFor(() => expect(screen.getByTestId("insertion-create_repo-0")).toBeInTheDocument());
 
     fireEvent.drop(screen.getByTestId("insertion-create_repo-0"), { dataTransfer: gateDataTransfer() });
@@ -104,7 +104,7 @@ describe("PipelineCanvas", () => {
   it("removes a placed gate", async () => {
     stubFetch();
 
-    render(<PipelineCanvas onSaved={() => {}} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" onSaved={() => {}} onCancel={() => {}} />);
     await waitFor(() => expect(screen.getByTestId("insertion-create_repo-0")).toBeInTheDocument());
     fireEvent.drop(screen.getByTestId("insertion-create_repo-0"), { dataTransfer: gateDataTransfer() });
     await waitFor(() => expect(screen.getByRole("button", { name: /Remove gate/ })).toBeInTheDocument());
@@ -119,14 +119,14 @@ describe("PipelineCanvas", () => {
     const onSaved = vi.fn();
     const user = userEvent.setup();
 
-    render(<PipelineCanvas onSaved={onSaved} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" onSaved={onSaved} onCancel={() => {}} />);
     await waitFor(() => expect(screen.getByLabelText("Name")).toBeInTheDocument());
 
     await user.type(screen.getByLabelText("Name"), "New Pipeline");
     await user.click(screen.getByRole("button", { name: "Save pipeline" }));
 
     await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith("/api/workflows", {
+      expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/workflows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "New Pipeline", slots: {} }),
@@ -139,16 +139,16 @@ describe("PipelineCanvas", () => {
     const fetchMock = stubFetch();
     const onSaved = vi.fn();
     const user = userEvent.setup();
-    const initial = { id: "w1", name: "Existing", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" };
+    const initial = { id: "w1", projectId: "p1", name: "Existing", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" };
 
-    render(<PipelineCanvas initial={initial} onSaved={onSaved} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" initial={initial} onSaved={onSaved} onCancel={() => {}} />);
     await waitFor(() => expect(screen.getByTestId("insertion-qa-0")).toBeInTheDocument());
     fireEvent.drop(screen.getByTestId("insertion-qa-0"), { dataTransfer: dataTransferWith("b") });
 
     await user.click(screen.getByRole("button", { name: "Save pipeline" }));
 
     await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith("/api/workflows/w1", {
+      expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/workflows/w1", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "Existing", slots: { qa: ["b"] } }),
@@ -162,7 +162,7 @@ describe("PipelineCanvas", () => {
     const onSaved = vi.fn();
     const user = userEvent.setup();
 
-    render(<PipelineCanvas onSaved={onSaved} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" onSaved={onSaved} onCancel={() => {}} />);
     await waitFor(() => expect(screen.getByLabelText("Name")).toBeInTheDocument());
     await user.type(screen.getByLabelText("Name"), "X");
 
@@ -183,7 +183,7 @@ describe("PipelineCanvas", () => {
     const onSaved = vi.fn();
     const user = userEvent.setup();
 
-    render(<PipelineCanvas onSaved={onSaved} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" onSaved={onSaved} onCancel={() => {}} />);
     await waitFor(() => expect(screen.getByLabelText("Name")).toBeInTheDocument());
     await user.type(screen.getByLabelText("Name"), "X");
 
@@ -198,7 +198,7 @@ describe("PipelineCanvas", () => {
   it("shows the agents fetch error inside the palette", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
 
-    render(<PipelineCanvas onSaved={() => {}} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" onSaved={() => {}} onCancel={() => {}} />);
 
     await waitFor(() =>
       expect(within(screen.getByTestId("agent-palette")).getByText("Failed to load agents (undefined)")).toBeInTheDocument(),
@@ -207,9 +207,9 @@ describe("PipelineCanvas", () => {
 
   it("shows a warning badge on a custom agent placed before its declared input is available", async () => {
     stubFetch({ agents: [agentA, agentB, agentC] });
-    const initial = { id: "w1", name: "Existing", slots: { create_repo: ["c"] }, createdAt: "2026-01-01T00:00:00.000Z" };
+    const initial = { id: "w1", projectId: "p1", name: "Existing", slots: { create_repo: ["c"] }, createdAt: "2026-01-01T00:00:00.000Z" };
 
-    render(<PipelineCanvas initial={initial} onSaved={() => {}} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" initial={initial} onSaved={() => {}} onCancel={() => {}} />);
 
     await waitFor(() => expect(screen.getByText("PR Reviewer")).toBeInTheDocument());
     expect(screen.getByTitle(/missing: pull request/i)).toBeInTheDocument();
@@ -217,9 +217,9 @@ describe("PipelineCanvas", () => {
 
   it("shows no warning badge once the custom agent is placed after its declared input is available", async () => {
     stubFetch({ agents: [agentA, agentB, agentC] });
-    const initial = { id: "w1", name: "Existing", slots: { qa: ["c"] }, createdAt: "2026-01-01T00:00:00.000Z" };
+    const initial = { id: "w1", projectId: "p1", name: "Existing", slots: { qa: ["c"] }, createdAt: "2026-01-01T00:00:00.000Z" };
 
-    render(<PipelineCanvas initial={initial} onSaved={() => {}} onCancel={() => {}} />);
+    render(<PipelineCanvas projectId="p1" initial={initial} onSaved={() => {}} onCancel={() => {}} />);
 
     await waitFor(() => expect(screen.getByText("PR Reviewer")).toBeInTheDocument());
     expect(screen.queryByTitle(/missing:/i)).not.toBeInTheDocument();
@@ -230,7 +230,7 @@ describe("PipelineCanvas", () => {
     const onCancel = vi.fn();
     const user = userEvent.setup();
 
-    render(<PipelineCanvas onSaved={() => {}} onCancel={onCancel} />);
+    render(<PipelineCanvas projectId="p1" onSaved={() => {}} onCancel={onCancel} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));

@@ -8,12 +8,16 @@ export interface UseRunEventsResult {
   connected: boolean;
 }
 
-export function useRunEvents(): UseRunEventsResult {
+export function useRunEvents(projectId: string | null): UseRunEventsResult {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const source = new EventSource("/events");
+    setEvents([]);
+    setConnected(false);
+    if (!projectId) return;
+
+    const source = new EventSource(`/api/projects/${projectId}/events`);
 
     source.onopen = () => {
       setEvents([]);
@@ -26,7 +30,7 @@ export function useRunEvents(): UseRunEventsResult {
     };
 
     return () => source.close();
-  }, []);
+  }, [projectId]);
 
   const eventsByStage = groupEventsByStage(events);
 

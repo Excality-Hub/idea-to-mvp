@@ -20,12 +20,12 @@ export const STAGE_STATUS_CONFIG: Record<StageDisplayStatus, StatusConfig> = {
 
 export const OVERALL_STATUS_CONFIG: Record<
   OverallStatus,
-  { label: string; className: string }
+  { label: string; className: string; dotClassName: string }
 > = {
-  idle: { label: "Idle", className: "bg-muted text-muted-foreground" },
-  running: { label: "Running", className: "bg-primary/15 text-primary" },
-  deployed: { label: "Deployed", className: "bg-success/15 text-success" },
-  blocked: { label: "Blocked", className: "bg-warning/15 text-warning" },
-  failed: { label: "Failed", className: "bg-destructive/15 text-destructive" },
-  stopped: { label: "Stopped", className: "bg-warning/15 text-warning" },
+  idle: { label: "Idle", className: "bg-muted text-muted-foreground", dotClassName: "bg-muted-foreground" },
+  running: { label: "Running", className: "bg-primary/15 text-primary", dotClassName: "bg-primary" },
+  deployed: { label: "Deployed", className: "bg-success/15 text-success", dotClassName: "bg-success" },
+  blocked: { label: "Blocked", className: "bg-warning/15 text-warning", dotClassName: "bg-warning" },
+  failed: { label: "Failed", className: "bg-destructive/15 text-destructive", dotClassName: "bg-destructive" },
+  stopped: { label: "Stopped", className: "bg-warning/15 text-warning", dotClassName: "bg-warning" },
 };

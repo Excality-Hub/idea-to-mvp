@@ -8,17 +8,23 @@ export interface UseWorkflowsResult {
   refetch: () => void;
 }
 
-export function useWorkflows(): UseWorkflowsResult {
+export function useWorkflows(projectId: string | null): UseWorkflowsResult {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [refetchToken, setRefetchToken] = useState(0);
 
   useEffect(() => {
+    if (!projectId) {
+      setWorkflows([]);
+      setError(undefined);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(undefined);
-    fetch("/api/workflows")
+    fetch(`/api/projects/${projectId}/workflows`)
       .then((res) => {
         if (!res.ok) throw new Error(`Failed to load workflows (${res.status})`);
         return res.json() as Promise<WorkflowDefinition[]>;
@@ -35,7 +41,7 @@ export function useWorkflows(): UseWorkflowsResult {
     return () => {
       cancelled = true;
     };
-  }, [refetchToken]);
+  }, [projectId, refetchToken]);
 
   const refetch = useCallback(() => setRefetchToken((t) => t + 1), []);
 

@@ -3,31 +3,29 @@ import { Badge } from "@/components/ui/badge";
 import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 import { cn } from "@/lib/utils";
 
-export type SidebarView = "workflows" | "agents" | "pipelines";
+export type SidebarView = "workflows" | "agents" | "pipelines" | "runs";
 
 const NAV_ITEMS: { label: string; icon: typeof Workflow; view: SidebarView }[] = [
   { label: "Workflows", icon: Workflow, view: "workflows" },
   { label: "Agents", icon: Bot, view: "agents" },
   { label: "Pipelines", icon: GitBranch, view: "pipelines" },
+  { label: "Runs history", icon: History, view: "runs" },
 ];
 
-const DISABLED_ITEMS = [
-  { label: "Runs history", icon: History },
-  { label: "Settings", icon: Settings },
-];
+const DISABLED_ITEMS = [{ label: "Settings", icon: Settings }];
 
 interface SidebarProps {
   activeView: SidebarView;
   onSelect: (view: SidebarView) => void;
-  selectedProjectId: string | null;
-  onSelectProject: (projectId: string | null) => void;
+  activeProjectId: string | null;
+  onSelectProject: (projectId: string) => void;
 }
 
-export function Sidebar({ activeView, onSelect, selectedProjectId, onSelectProject }: SidebarProps) {
+export function Sidebar({ activeView, onSelect, activeProjectId, onSelectProject }: SidebarProps) {
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
       <div className="border-b border-sidebar-border p-3">
-        <ProjectSwitcher variant="sidebar" selectedProjectId={selectedProjectId} onSelect={onSelectProject} />
+        <ProjectSwitcher variant="sidebar" activeProjectId={activeProjectId} onSelect={onSelectProject} />
       </div>
       <nav className="flex flex-1 flex-col gap-1 px-2 py-4">
         {NAV_ITEMS.map(({ label, icon: Icon, view }) => (

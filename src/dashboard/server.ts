@@ -1,50 +1,45 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import express from "express";
-import type { RunEventBus } from "../orchestrator/events.js";
+import { z } from "zod";
 import type { RunController } from "../orchestrator/runController.js";
+import type { RunControllerRegistry } from "../orchestrator/runControllerRegistry.js";
 import type { AgentStore } from "../agents/agentStore.js";
 import { AgentDefinitionInputSchema, type AgentDefinition } from "../agents/types.js";
-import { DEFAULT_WORKFLOW_ID, type WorkflowStore } from "../orchestrator/workflowStore.js";
+import { createDefaultWorkflow, defaultWorkflowIdFor, type WorkflowStore } from "../orchestrator/workflowStore.js";
 import { BACKBONE_STAGES, isGateEntry, WorkflowInputSchema, type BackboneStage, type WorkflowDefinition } from "../orchestrator/types.js";
-import type { ProjectStore, ProjectSummary } from "../orchestrator/projectStore.js";
+import { generateRepoName, type Project, type ProjectStore } from "../orchestrator/projectStore.js";
+import type { RunStore, RunSummary } from "../orchestrator/runStore.js";
 
-export interface RunSession {
-  eventBus: RunEventBus;
-  onBusReplaced(listener: () => void): () => void;
-}
-
-export function createEventsHandler(session: RunSession): express.RequestHandler {
-  const openResponses = new Set<express.Response>();
-  session.onBusReplaced(() => {
-    for (const res of openResponses) res.end();
-    openResponses.clear();
-  });
-
+export function createEventsHandler(registry: Pick<RunControllerRegistry, "get">): express.RequestHandler {
   return (req, res) => {
+    const controller = registry.get(req.params.projectId);
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
-    openResponses.add(res);
 
-    const unsubscribe = session.eventBus.onEvent((event) => {
+    const unsubscribeEvent = controller.eventBus.onEvent((event) => {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
+    });
+    const unsubscribeReplaced = controller.onBusReplaced(() => {
+      res.end();
     });
 
     req.on("close", () => {
-      unsubscribe();
-      openResponses.delete(res);
+      unsubscribeEvent();
+      unsubscribeReplaced();
     });
   };
 }
 
-export function createRunHandlers(controller: Pick<RunController, "start" | "stop" | "resume" | "decideGate">): {
+export function createRunHandlers(registry: Pick<RunControllerRegistry, "get">): {
   start: express.RequestHandler;
   stop: express.RequestHandler;
   resume: express.RequestHandler;
   approveGate: express.RequestHandler;
   rejectGate: express.RequestHandler;
+  plan: express.RequestHandler;
 } {
   const start: express.RequestHandler = (req, res) => {
     const body = req.body as { ideaText?: string; workflowId?: string } | undefined;
@@ -54,6 +49,7 @@ export function createRunHandlers(controller: Pick<RunController, "start" | "sto
       return;
     }
     try {
+      const controller = registry.get(req.params.projectId);
       if (body?.workflowId) {
         controller.start(ideaText, body.workflowId);
       } else {
@@ -65,18 +61,18 @@ export function createRunHandlers(controller: Pick<RunController, "start" | "sto
     }
   };
 
-  const stop: express.RequestHandler = (_req, res) => {
+  const stop: express.RequestHandler = (req, res) => {
     try {
-      controller.stop();
+      registry.get(req.params.projectId).stop();
       res.status(204).end();
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
   };
 
-  const resume: express.RequestHandler = (_req, res) => {
+  const resume: express.RequestHandler = (req, res) => {
     try {
-      controller.resume();
+      registry.get(req.params.projectId).resume();
       res.status(204).end();
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
@@ -85,7 +81,7 @@ export function createRunHandlers(controller: Pick<RunController, "start" | "sto
 
   const decide = (decision: "approved" | "rejected"): express.RequestHandler => (req, res) => {
     try {
-      controller.decideGate(req.params.id, decision);
+      registry.get(req.params.projectId).decideGate(req.params.gateId, decision);
       res.status(204).end();
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
@@ -94,12 +90,16 @@ export function createRunHandlers(controller: Pick<RunController, "start" | "sto
   const approveGate = decide("approved");
   const rejectGate = decide("rejected");
 
-  return { start, stop, resume, approveGate, rejectGate };
+  const plan: express.RequestHandler = (req, res) => {
+    res.json(registry.get(req.params.projectId).getPlan() ?? []);
+  };
+
+  return { start, stop, resume, approveGate, rejectGate, plan };
 }
 
 export function createAgentHandlers(
   agentStore: AgentStore,
-  workflowStore: WorkflowStore,
+  workflowStore: Pick<WorkflowStore, "list">,
 ): { list: express.RequestHandler; create: express.RequestHandler; remove: express.RequestHandler } {
   const list: express.RequestHandler = (_req, res) => {
     res.json(agentStore.list());
@@ -164,8 +164,8 @@ export function createWorkflowHandlers(
     return { ok: true, data: { name: parsed.data.name, slots } };
   }
 
-  const list: express.RequestHandler = (_req, res) => {
-    res.json(workflowStore.list());
+  const list: express.RequestHandler = (req, res) => {
+    res.json(workflowStore.listByProject(req.params.projectId));
   };
 
   const create: express.RequestHandler = (req, res) => {
@@ -174,19 +174,24 @@ export function createWorkflowHandlers(
       res.status(400).json({ error: validation.error });
       return;
     }
-    const workflow: WorkflowDefinition = { id: randomUUID(), ...validation.data, createdAt: new Date().toISOString() };
+    const workflow: WorkflowDefinition = {
+      id: randomUUID(),
+      projectId: req.params.projectId,
+      ...validation.data,
+      createdAt: new Date().toISOString(),
+    };
     workflowStore.create(workflow);
     res.status(201).json(workflow);
   };
 
   const update: express.RequestHandler = (req, res) => {
-    if (req.params.id === DEFAULT_WORKFLOW_ID) {
-      res.status(400).json({ error: "Cannot edit the default workflow" });
+    const existing = workflowStore.get(req.params.workflowId);
+    if (!existing || existing.projectId !== req.params.projectId) {
+      res.status(404).json({ error: "Workflow not found" });
       return;
     }
-    const existing = workflowStore.get(req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: "Workflow not found" });
+    if (existing.id === defaultWorkflowIdFor(req.params.projectId)) {
+      res.status(400).json({ error: "Cannot edit the default workflow" });
       return;
     }
     const validation = validateWorkflowInput(req.body);
@@ -195,36 +200,50 @@ export function createWorkflowHandlers(
       return;
     }
     const workflow: WorkflowDefinition = { ...existing, ...validation.data };
-    workflowStore.update(req.params.id, workflow);
+    workflowStore.update(req.params.workflowId, workflow);
     res.status(200).json(workflow);
   };
 
   const remove: express.RequestHandler = (req, res) => {
-    if (req.params.id === DEFAULT_WORKFLOW_ID) {
+    const existing = workflowStore.get(req.params.workflowId);
+    if (!existing || existing.projectId !== req.params.projectId) {
+      res.status(404).json({ error: "Workflow not found" });
+      return;
+    }
+    if (existing.id === defaultWorkflowIdFor(req.params.projectId)) {
       res.status(400).json({ error: "Cannot delete the default workflow" });
       return;
     }
-    workflowStore.delete(req.params.id);
+    workflowStore.delete(req.params.workflowId);
     res.status(204).end();
   };
 
   return { list, create, update, remove };
 }
 
+export function createRequireProjectMiddleware(projectStore: Pick<ProjectStore, "get">): express.RequestHandler {
+  return (req, res, next) => {
+    if (!projectStore.get(req.params.projectId)) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    next();
+  };
+}
+
+const ProjectInputSchema = z.object({ name: z.string().min(1) });
+
 export function createProjectHandlers(
-  projectStore: Pick<ProjectStore, "list" | "get">,
-  controller: Pick<RunController, "getCurrentProjectId">,
-): { list: express.RequestHandler; get: express.RequestHandler } {
+  projectStore: ProjectStore,
+  workflowStore: Pick<WorkflowStore, "create">,
+): { list: express.RequestHandler; get: express.RequestHandler; create: express.RequestHandler } {
   const list: express.RequestHandler = (_req, res) => {
-    const projects: ProjectSummary[] = projectStore
-      .list()
-      .map(({ events: _events, ...summary }) => summary)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    res.json({ projects, currentProjectId: controller.getCurrentProjectId() ?? null });
+    const projects = [...projectStore.list()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    res.json(projects);
   };
 
   const get: express.RequestHandler = (req, res) => {
-    const project = projectStore.get(req.params.id);
+    const project = projectStore.get(req.params.projectId);
     if (!project) {
       res.status(404).json({ error: "Project not found" });
       return;
@@ -232,39 +251,91 @@ export function createProjectHandlers(
     res.json(project);
   };
 
+  const create: express.RequestHandler = (req, res) => {
+    const parsed = ProjectInputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    const project: Project = {
+      id: randomUUID(),
+      name: parsed.data.name,
+      repoName: generateRepoName(parsed.data.name),
+      createdAt: new Date().toISOString(),
+    };
+    projectStore.create(project);
+    workflowStore.create(createDefaultWorkflow(project.id));
+    res.status(201).json(project);
+  };
+
+  return { list, get, create };
+}
+
+export function createRunsHandlers(
+  runStore: Pick<RunStore, "listByProject" | "get">,
+): { list: express.RequestHandler; get: express.RequestHandler } {
+  const list: express.RequestHandler = (req, res) => {
+    const runs: RunSummary[] = runStore
+      .listByProject(req.params.projectId)
+      .map(({ events: _events, ...summary }) => summary)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    res.json(runs);
+  };
+
+  const get: express.RequestHandler = (req, res) => {
+    const run = runStore.get(req.params.runId);
+    if (!run || run.projectId !== req.params.projectId) {
+      res.status(404).json({ error: "Run not found" });
+      return;
+    }
+    res.json(run);
+  };
+
   return { list, get };
 }
 
 export function createDashboardServer(
-  controller: RunController,
+  registry: RunControllerRegistry,
   agentStore: AgentStore,
   workflowStore: WorkflowStore,
   projectStore: ProjectStore,
+  runStore: RunStore,
 ): express.Express {
   const app = express();
   app.use(express.json());
   app.use(express.static(fileURLToPath(new URL("../../web/dist", import.meta.url))));
-  app.get("/events", createEventsHandler(controller));
-  const { start, stop, resume, approveGate, rejectGate } = createRunHandlers(controller);
-  app.post("/api/run", start);
-  app.post("/api/run/stop", stop);
-  app.post("/api/run/resume", resume);
-  app.post("/api/run/gates/:id/approve", approveGate);
-  app.post("/api/run/gates/:id/reject", rejectGate);
-  app.get("/api/run/plan", (_req, res) => {
-    res.json(controller.getPlan() ?? []);
-  });
+
   const agentHandlers = createAgentHandlers(agentStore, workflowStore);
   app.get("/api/agents", agentHandlers.list);
   app.post("/api/agents", agentHandlers.create);
   app.delete("/api/agents/:id", agentHandlers.remove);
-  const workflowHandlers = createWorkflowHandlers(workflowStore, agentStore);
-  app.get("/api/workflows", workflowHandlers.list);
-  app.post("/api/workflows", workflowHandlers.create);
-  app.put("/api/workflows/:id", workflowHandlers.update);
-  app.delete("/api/workflows/:id", workflowHandlers.remove);
-  const projectHandlers = createProjectHandlers(projectStore, controller);
+
+  const projectHandlers = createProjectHandlers(projectStore, workflowStore);
   app.get("/api/projects", projectHandlers.list);
-  app.get("/api/projects/:id", projectHandlers.get);
+  app.post("/api/projects", projectHandlers.create);
+
+  app.use("/api/projects/:projectId", createRequireProjectMiddleware(projectStore));
+
+  app.get("/api/projects/:projectId", projectHandlers.get);
+  app.get("/api/projects/:projectId/events", createEventsHandler(registry));
+
+  const { start, stop, resume, approveGate, rejectGate, plan } = createRunHandlers(registry);
+  app.post("/api/projects/:projectId/run", start);
+  app.post("/api/projects/:projectId/run/stop", stop);
+  app.post("/api/projects/:projectId/run/resume", resume);
+  app.post("/api/projects/:projectId/run/gates/:gateId/approve", approveGate);
+  app.post("/api/projects/:projectId/run/gates/:gateId/reject", rejectGate);
+  app.get("/api/projects/:projectId/run/plan", plan);
+
+  const workflowHandlers = createWorkflowHandlers(workflowStore, agentStore);
+  app.get("/api/projects/:projectId/workflows", workflowHandlers.list);
+  app.post("/api/projects/:projectId/workflows", workflowHandlers.create);
+  app.put("/api/projects/:projectId/workflows/:workflowId", workflowHandlers.update);
+  app.delete("/api/projects/:projectId/workflows/:workflowId", workflowHandlers.remove);
+
+  const runsHandlers = createRunsHandlers(runStore);
+  app.get("/api/projects/:projectId/runs", runsHandlers.list);
+  app.get("/api/projects/:projectId/runs/:runId", runsHandlers.get);
+
   return app;
 }

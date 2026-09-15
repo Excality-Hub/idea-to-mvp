@@ -15,7 +15,7 @@ const labelFor = (stage: StageName) => (stage === "analyst" ? "Analyst" : "Archi
 describe("StageFlowGraph", () => {
   it("renders one node per stage in stageOrder, labeled via labelFor", async () => {
     render(
-      <StageFlowGraph eventsByStage={eventsByStage} stageOrder={stageOrder} labelFor={labelFor} onSelectStage={vi.fn()} />,
+      <StageFlowGraph projectId="p1" eventsByStage={eventsByStage} stageOrder={stageOrder} labelFor={labelFor} onSelectStage={vi.fn()} />,
     );
 
     await screen.findByText("Analyst");
@@ -27,6 +27,7 @@ describe("StageFlowGraph", () => {
     const user = userEvent.setup();
     render(
       <StageFlowGraph
+        projectId="p1"
         eventsByStage={eventsByStage}
         stageOrder={stageOrder}
         labelFor={labelFor}

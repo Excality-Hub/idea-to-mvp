@@ -1,4 +1,6 @@
-import { Bot, ChevronsUpDown } from "lucide-react";
+import { useState } from "react";
+import { Bot, ChevronsUpDown, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,24 +17,45 @@ function truncate(text: string, max = 60): string {
 }
 
 interface ProjectSwitcherProps {
-  selectedProjectId: string | null;
-  onSelect: (projectId: string | null) => void;
+  activeProjectId: string | null;
+  onSelect: (projectId: string) => void;
   variant?: "header" | "sidebar";
 }
 
-export function ProjectSwitcher({ selectedProjectId, onSelect, variant = "header" }: ProjectSwitcherProps) {
-  const { projects, currentProjectId, refetch } = useProjects();
-  const viewedId = selectedProjectId ?? currentProjectId;
-  const viewedProject = projects.find((p) => p.id === viewedId);
-  const label = viewedProject ? truncate(viewedProject.ideaText) : "idea-to-mvp";
-  const isViewingHistory = viewedId !== null && viewedId !== currentProjectId;
-  const currentProject = projects.find((p) => p.id === currentProjectId);
-  const pastProjects = projects.filter((p) => p.id !== currentProjectId);
+export function ProjectSwitcher({ activeProjectId, onSelect, variant = "header" }: ProjectSwitcherProps) {
+  const { projects, refetch, createProject } = useProjects();
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | undefined>(undefined);
+  const activeProject = projects.find((p) => p.id === activeProjectId);
+  const label = activeProject ? truncate(activeProject.name) : "idea-to-mvp";
+
+  async function handleCreate() {
+    const name = newName.trim();
+    if (!name) return;
+    setCreateError(undefined);
+    setSubmitting(true);
+    try {
+      const project = await createProject(name);
+      onSelect(project.id);
+      setNewName("");
+      setCreating(false);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Could not create this project. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <DropdownMenu
       onOpenChange={(open) => {
         if (open) refetch();
+        else {
+          setCreating(false);
+          setCreateError(undefined);
+        }
       }}
     >
       <DropdownMenuTrigger
@@ -50,7 +73,7 @@ export function ProjectSwitcher({ selectedProjectId, onSelect, variant = "header
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold text-sidebar-foreground">{label}</span>
               <span className="block truncate font-mono text-[10px] text-sidebar-foreground/60">
-                {isViewingHistory ? "history" : "live"}
+                {activeProject ? "project" : "no project"}
               </span>
             </span>
             <ChevronsUpDown className="size-4 shrink-0 text-sidebar-foreground/60" />
@@ -60,30 +83,43 @@ export function ProjectSwitcher({ selectedProjectId, onSelect, variant = "header
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className={variant === "sidebar" ? "w-64" : undefined}>
-        {currentProject && (
-          <>
-            <DropdownMenuItem onSelect={() => onSelect(null)}>
-              <span className="font-medium text-foreground">{truncate(currentProject.ideaText)}</span>
-              <span className="text-xs text-muted-foreground">Live</span>
-            </DropdownMenuItem>
-            {pastProjects.length > 0 && <DropdownMenuSeparator />}
-          </>
-        )}
-        {!currentProject && selectedProjectId !== null && (
-          <>
-            <DropdownMenuItem onSelect={() => onSelect(null)}>
-              <span className="font-medium text-foreground">Back to live</span>
-            </DropdownMenuItem>
-            {pastProjects.length > 0 && <DropdownMenuSeparator />}
-          </>
-        )}
-        {pastProjects.map((project) => (
+        {projects.map((project) => (
           <DropdownMenuItem key={project.id} onSelect={() => onSelect(project.id)}>
-            <span className="font-medium text-foreground">{truncate(project.ideaText)}</span>
+            <span className="font-medium text-foreground">{truncate(project.name)}</span>
             <span className="text-xs text-muted-foreground">{new Date(project.createdAt).toLocaleString()}</span>
           </DropdownMenuItem>
         ))}
         {projects.length === 0 && <div className="px-2.5 py-2 text-sm text-muted-foreground">No projects yet</div>}
+        <DropdownMenuSeparator />
+        {creating ? (
+          <div className="flex flex-col gap-2 p-2">
+            <input
+              autoFocus
+              aria-label="Project name"
+              className="rounded-lg border border-border bg-background p-2 text-sm"
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") handleCreate();
+              }}
+            />
+            <Button size="sm" onClick={handleCreate} disabled={!newName.trim() || submitting}>
+              {submitting ? "Creating..." : "Create"}
+            </Button>
+            {createError && <p className="text-sm text-destructive">{createError}</p>}
+          </div>
+        ) : (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              setCreateError(undefined);
+              setCreating(true);
+            }}
+          >
+            <Plus className="size-4" />
+            <span className="font-medium text-foreground">New project</span>
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

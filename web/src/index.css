@@ -51,42 +51,42 @@
 }
 
 /*
- * Palette sourced from excality.com's own published CSS (light theme,
- * teal accent scale, navy/steel secondary scale, Inter + JetBrains Mono).
+ * Palette sourced from agent-canvas-gui.lovable.app's own published CSS
+ * (dark ops-console theme, green-teal primary, blue-violet accent).
  */
 :root {
-    --background: #f7f9fa;
-    --foreground: #1f2933;
-    --card: #ffffff;
-    --card-foreground: #1f2933;
-    --popover: #ffffff;
-    --popover-foreground: #1f2933;
-    --primary: #149180;
-    --primary-foreground: #ffffff;
-    --secondary: #f0f4f8;
-    --secondary-foreground: #102a43;
-    --muted: #f0f4f8;
-    --muted-foreground: #627d98;
-    --accent: #d9e2ec;
-    --accent-foreground: #102a43;
-    --destructive: #e12d39;
-    --destructive-foreground: #ffffff;
-    --success: #1abba4;
-    --success-foreground: #ffffff;
-    --warning: #c98a1f;
-    --warning-foreground: #ffffff;
-    --border: #d9e2ec;
-    --input: #d9e2ec;
-    --ring: #1abba4;
+    --background: oklch(14.5% .012 255);
+    --foreground: oklch(96% .004 260);
+    --card: oklch(20.5% .014 255);
+    --card-foreground: oklch(96% .004 260);
+    --popover: oklch(19.8% .009 260);
+    --popover-foreground: oklch(96% .004 260);
+    --primary: oklch(76.5% .15 160);
+    --primary-foreground: oklch(16% .02 155);
+    --secondary: oklch(26% .01 260);
+    --secondary-foreground: oklch(94% .004 260);
+    --muted: oklch(24% .01 260);
+    --muted-foreground: oklch(68% .012 260);
+    --accent: oklch(68% .16 250);
+    --accent-foreground: oklch(15% .02 250);
+    --destructive: oklch(63% .21 25);
+    --destructive-foreground: oklch(98% .005 260);
+    --success: oklch(72% .17 155);
+    --success-foreground: oklch(16% .02 155);
+    --warning: oklch(79% .15 78);
+    --warning-foreground: oklch(18% .03 78);
+    --border: oklch(28.5% .016 255);
+    --input: oklch(29% .011 260);
+    --ring: oklch(72% .17 155);
     --radius: 0.75rem;
-    --sidebar: #102a43;
-    --sidebar-foreground: #bcccdc;
-    --sidebar-primary: #1abba4;
-    --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #243b53;
-    --sidebar-accent-foreground: #f0f4f8;
-    --sidebar-border: #243b53;
-    --sidebar-ring: #1abba4;
+    --sidebar: oklch(12.5% .01 255);
+    --sidebar-foreground: oklch(90% .006 260);
+    --sidebar-primary: oklch(72% .17 155);
+    --sidebar-primary-foreground: oklch(16% .02 155);
+    --sidebar-accent: oklch(24% .01 260);
+    --sidebar-accent-foreground: oklch(96% .004 260);
+    --sidebar-border: oklch(26% .011 260);
+    --sidebar-ring: oklch(72% .17 155);
 }
 
 .dark {
@@ -133,4 +133,14 @@
   html {
     @apply font-sans;
     }
+}
+
+@layer components {
+  .glass-panel {
+    background-color: color-mix(in oklab, var(--card) 82%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    backdrop-filter: blur(18px) saturate(1.25);
+    -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  }
 }

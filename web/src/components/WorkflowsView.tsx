@@ -7,19 +7,21 @@ import { useRunPlan } from "@/hooks/useRunPlan";
 import { useWorkflows } from "@/hooks/useWorkflows";
 import { deriveOverallStatus, deriveStageStatus, type EventsByStage } from "@/lib/runEvents";
 import { getStageLabel } from "@/lib/workflowGraph";
-import type { StageName } from "@/types";
+import { defaultWorkflowIdFor, type StageName } from "@/types";
 
 interface WorkflowsViewProps {
+  projectId: string;
   eventsByStage: EventsByStage;
 }
 
 const TERMINAL_STATUSES = new Set(["deployed", "blocked", "failed"]);
 
-export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
+export function WorkflowsView({ projectId, eventsByStage }: WorkflowsViewProps) {
   const [selectedStage, setSelectedStage] = useState<StageName | null>(null);
   const [ideaText, setIdeaText] = useState("");
-  const [workflowId, setWorkflowId] = useState("default");
+  const [workflowId, setWorkflowId] = useState(() => defaultWorkflowIdFor(projectId));
   const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | undefined>(undefined);
   const [showStartForm, setShowStartForm] = useState(false);
   const [runGeneration, setRunGeneration] = useState(0);
 
@@ -28,22 +30,28 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
   const isTerminal = TERMINAL_STATUSES.has(overallStatus);
   const showForm = isIdle || (isTerminal && showStartForm);
 
-  const { workflows, error: workflowsError } = useWorkflows();
+  const { workflows, error: workflowsError } = useWorkflows(projectId);
   const { agents } = useAgents();
   const agentsById = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a])), [agents]);
-  const stageOrder = useRunPlan(isIdle, runGeneration);
+  const stageOrder = useRunPlan(projectId, isIdle, runGeneration);
   const labelFor = useMemo(() => (stage: StageName) => getStageLabel(stage, agentsById), [agentsById]);
 
   const selectedEvents = selectedStage ? (eventsByStage[selectedStage] ?? []) : [];
 
   async function handleStart() {
+    setStartError(undefined);
     setStarting(true);
     try {
-      await fetch("/api/run", {
+      const res = await fetch(`/api/projects/${projectId}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ideaText, workflowId }),
       });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setStartError(body.error ?? `Could not start this run (${res.status})`);
+        return;
+      }
       setRunGeneration((g) => g + 1);
     } finally {
       setStarting(false);
@@ -99,10 +107,12 @@ export function WorkflowsView({ eventsByStage }: WorkflowsViewProps) {
           <Button onClick={handleStart} disabled={!ideaText.trim() || starting}>
             {starting ? "Starting..." : "Start run"}
           </Button>
+          {startError && <p className="text-sm text-destructive">{startError}</p>}
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card">
           <StageFlowGraph
+            projectId={projectId}
             eventsByStage={eventsByStage}
             stageOrder={stageOrder}
             labelFor={labelFor}

@@ -28,6 +28,7 @@ const AGENT_DND_TYPE = "application/x-agent-id";
 const GATE_DND_TYPE = "application/x-gate";
 
 interface PipelineCanvasProps {
+  projectId: string;
   initial?: WorkflowDefinition;
   onSaved: () => void;
   onCancel: () => void;
@@ -177,7 +178,7 @@ function GatePaletteCard() {
   );
 }
 
-export function PipelineCanvas({ initial, onSaved, onCancel }: PipelineCanvasProps) {
+export function PipelineCanvas({ projectId, initial, onSaved, onCancel }: PipelineCanvasProps) {
   const { agents, error: agentsError } = useAgents();
   const [name, setName] = useState(initial?.name ?? "");
   const [slots, setSlots] = useState<SlotsState>(() => {
@@ -245,7 +246,7 @@ export function PipelineCanvas({ initial, onSaved, onCancel }: PipelineCanvasPro
     setFormError(undefined);
     setSubmitting(true);
     try {
-      const url = initial ? `/api/workflows/${initial.id}` : "/api/workflows";
+      const url = initial ? `/api/projects/${projectId}/workflows/${initial.id}` : `/api/projects/${projectId}/workflows`;
       const method = initial ? "PUT" : "POST";
       const res = await fetch(url, {
         method,

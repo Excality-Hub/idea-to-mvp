@@ -28,6 +28,7 @@ describe("StageNode", () => {
       type: "stage",
       position: { x: 0, y: 0 },
       data: {
+        projectId: "p1",
         stage: "analyst",
         label: "Analyst",
         status: "done",
@@ -50,7 +51,7 @@ describe("StageNode", () => {
       id: "deploy",
       type: "stage",
       position: { x: 0, y: 0 },
-      data: { stage: "deploy", label: "Deploy", status: "pending", latestEvent: undefined },
+      data: { projectId: "p1", stage: "deploy", label: "Deploy", status: "pending", latestEvent: undefined },
     });
 
     expect(screen.getByText("Deploy")).toBeInTheDocument();
@@ -62,7 +63,7 @@ describe("StageNode", () => {
       id: "developer",
       type: "stage",
       position: { x: 0, y: 0 },
-      data: { stage: "developer", label: "Developer", status: "running", latestEvent: undefined },
+      data: { projectId: "p1", stage: "developer", label: "Developer", status: "running", latestEvent: undefined },
     });
 
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
@@ -73,7 +74,7 @@ describe("StageNode", () => {
       id: "developer",
       type: "stage",
       position: { x: 0, y: 0 },
-      data: { stage: "developer", label: "Developer", status: "stopped", latestEvent: undefined },
+      data: { projectId: "p1", stage: "developer", label: "Developer", status: "stopped", latestEvent: undefined },
     });
 
     expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
@@ -84,13 +85,13 @@ describe("StageNode", () => {
       id: "deploy",
       type: "stage",
       position: { x: 0, y: 0 },
-      data: { stage: "deploy", label: "Deploy", status: "running", latestEvent: undefined },
+      data: { projectId: "p1", stage: "deploy", label: "Deploy", status: "running", latestEvent: undefined },
     });
 
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
   });
 
-  it("posts to /api/run/stop when Stop is clicked", async () => {
+  it("posts to the project-scoped stop route when Stop is clicked", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -98,12 +99,50 @@ describe("StageNode", () => {
       id: "developer",
       type: "stage",
       position: { x: 0, y: 0 },
-      data: { stage: "developer", label: "Developer", status: "running", latestEvent: undefined },
+      data: { projectId: "p1", stage: "developer", label: "Developer", status: "running", latestEvent: undefined },
     });
 
     await user.click(screen.getByRole("button", { name: "Stop" }));
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/run/stop", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/run/stop", { method: "POST" });
+    vi.unstubAllGlobals();
+  });
+
+  it("posts to the project-scoped resume route when Resume is clicked", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderStageNode({
+      id: "developer",
+      type: "stage",
+      position: { x: 0, y: 0 },
+      data: { projectId: "p1", stage: "developer", label: "Developer", status: "stopped", latestEvent: undefined },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/run/resume", { method: "POST" });
+    vi.unstubAllGlobals();
+  });
+
+  it("surfaces the server's error message when a run action fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({ error: "No abortable stage is currently running" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderStageNode({
+      id: "developer",
+      type: "stage",
+      position: { x: 0, y: 0 },
+      data: { projectId: "p1", stage: "developer", label: "Developer", status: "running", latestEvent: undefined },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+
+    expect(await screen.findByText("No abortable stage is currently running")).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 
@@ -112,7 +151,7 @@ describe("StageNode", () => {
       id: "gate:g1",
       type: "stage",
       position: { x: 0, y: 0 },
-      data: { stage: "gate:g1", label: "Approval gate", status: "stopped", latestEvent: undefined },
+      data: { projectId: "p1", stage: "gate:g1", label: "Approval gate", status: "stopped", latestEvent: undefined },
     });
 
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
@@ -128,12 +167,12 @@ describe("StageNode", () => {
       id: "gate:g1",
       type: "stage",
       position: { x: 0, y: 0 },
-      data: { stage: "gate:g1", label: "Approval gate", status: "stopped", latestEvent: undefined },
+      data: { projectId: "p1", stage: "gate:g1", label: "Approval gate", status: "stopped", latestEvent: undefined },
     });
 
     await user.click(screen.getByRole("button", { name: "Approve" }));
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/run/gates/g1/approve", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/run/gates/g1/approve", { method: "POST" });
     vi.unstubAllGlobals();
   });
 
@@ -145,12 +184,12 @@ describe("StageNode", () => {
       id: "gate:g1",
       type: "stage",
       position: { x: 0, y: 0 },
-      data: { stage: "gate:g1", label: "Approval gate", status: "stopped", latestEvent: undefined },
+      data: { projectId: "p1", stage: "gate:g1", label: "Approval gate", status: "stopped", latestEvent: undefined },
     });
 
     await user.click(screen.getByRole("button", { name: "Reject" }));
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/run/gates/g1/reject", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/run/gates/g1/reject", { method: "POST" });
     vi.unstubAllGlobals();
   });
 });

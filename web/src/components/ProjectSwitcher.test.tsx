@@ -3,16 +3,29 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 
-const body = {
-  projects: [
-    { id: "p-newer", ideaText: "Build a todo app", repoName: "idea-to-mvp-2", createdAt: "2026-09-14T00:00:00.000Z" },
-    { id: "p-older", ideaText: "Build a blog", repoName: "idea-to-mvp-1", createdAt: "2026-09-13T00:00:00.000Z" },
-  ],
-  currentProjectId: "p-newer",
-};
+const projects = [
+  { id: "p-newer", name: "Todo app", repoName: "todo-app-1", createdAt: "2026-09-14T00:00:00.000Z" },
+  { id: "p-older", name: "Blog", repoName: "blog-1", createdAt: "2026-09-13T00:00:00.000Z" },
+];
 
-function stubFetch() {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(body) }));
+function stubFetch(overrides: { list?: unknown; create?: unknown } = {}) {
+  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url === "/api/projects" && !init) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(overrides.list ?? projects) });
+    }
+    if (url === "/api/projects" && init?.method === "POST") {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            overrides.create ?? { id: "p-new", name: "New one", repoName: "new-one-1", createdAt: "2026-09-15T00:00:00.000Z" },
+          ),
+      });
+    }
+    return Promise.reject(new Error(`unexpected fetch ${url}`));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 afterEach(() => {
@@ -20,95 +33,103 @@ afterEach(() => {
 });
 
 describe("ProjectSwitcher", () => {
-  it("lists every project, marking the current one Live", async () => {
+  it("lists every project and shows the active one's name as the label", async () => {
     stubFetch();
     const user = userEvent.setup();
-    render(<ProjectSwitcher selectedProjectId={null} onSelect={vi.fn()} />);
+    render(<ProjectSwitcher activeProjectId="p-newer" onSelect={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole("button")).toBeInTheDocument());
 
+    expect(screen.getByText("Todo app")).toBeInTheDocument();
     await user.click(screen.getByRole("button"));
 
-    const liveItem = await screen.findByRole("menuitem", { name: /Build a todo app.*Live/s });
-    expect(liveItem).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /Build a blog/ })).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", { name: /Blog/ })).toBeInTheDocument();
   });
 
-  it("calls onSelect with a past project's id when it's clicked", async () => {
+  it("calls onSelect with a project's id when it's clicked", async () => {
     stubFetch();
     const onSelect = vi.fn();
     const user = userEvent.setup();
-    render(<ProjectSwitcher selectedProjectId={null} onSelect={onSelect} />);
+    render(<ProjectSwitcher activeProjectId={null} onSelect={onSelect} />);
     await waitFor(() => expect(screen.getByRole("button")).toBeInTheDocument());
     await user.click(screen.getByRole("button"));
 
-    await user.click(await screen.findByRole("menuitem", { name: /Build a blog/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /Blog/ }));
 
     expect(onSelect).toHaveBeenCalledWith("p-older");
   });
 
-  it("calls onSelect with null when the live entry is clicked", async () => {
-    stubFetch();
-    const onSelect = vi.fn();
+  it("shows a fallback label and 'No projects yet' when there are none", async () => {
+    stubFetch({ list: [] });
     const user = userEvent.setup();
-    render(<ProjectSwitcher selectedProjectId="p-older" onSelect={onSelect} />);
+    render(<ProjectSwitcher activeProjectId={null} onSelect={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole("button")).toBeInTheDocument());
+    expect(screen.getByText("idea-to-mvp")).toBeInTheDocument();
+
     await user.click(screen.getByRole("button"));
 
-    await user.click(await screen.findByRole("menuitem", { name: /Build a todo app.*Live/s }));
+    expect(await screen.findByText("No projects yet")).toBeInTheDocument();
+  });
 
-    expect(onSelect).toHaveBeenCalledWith(null);
+  it("creates a project from the inline 'New project' form and selects it", async () => {
+    const fetchMock = stubFetch({
+      create: { id: "p-new", name: "New idea", repoName: "new-idea-1", createdAt: "2026-09-15T00:00:00.000Z" },
+    });
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(<ProjectSwitcher activeProjectId={null} onSelect={onSelect} />);
+    await waitFor(() => expect(screen.getByRole("button")).toBeInTheDocument());
+    await user.click(screen.getByRole("button"));
+    await user.click(await screen.findByRole("menuitem", { name: /New project/ }));
+
+    await user.type(screen.getByLabelText("Project name"), "New idea");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "New idea" }),
+      }),
+    );
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith("p-new"));
+  });
+
+  it("shows an error and re-enables the button when creating a project fails", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(projects) });
+      }
+      if (url === "/api/projects" && init?.method === "POST") {
+        return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) });
+      }
+      return Promise.reject(new Error(`unexpected fetch ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(<ProjectSwitcher activeProjectId={null} onSelect={onSelect} />);
+    await waitFor(() => expect(screen.getByRole("button")).toBeInTheDocument());
+    await user.click(screen.getByRole("button"));
+    await user.click(await screen.findByRole("menuitem", { name: /New project/ }));
+
+    await user.type(screen.getByLabelText("Project name"), "New idea");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByText("Failed to create project (500)")).toBeInTheDocument();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
   });
 
   it("refetches the project list every time the dropdown is opened", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(body) });
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = stubFetch();
     const user = userEvent.setup();
-    render(<ProjectSwitcher selectedProjectId={null} onSelect={vi.fn()} />);
+    render(<ProjectSwitcher activeProjectId={null} onSelect={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole("button")).toBeInTheDocument());
     const callsAfterMount = fetchMock.mock.calls.length;
 
     await user.click(screen.getByRole("button"));
-    await screen.findByRole("menuitem", { name: /Build a blog/ });
+    await screen.findByRole("menuitem", { name: /Blog/ });
+
     expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterMount);
-    const callsAfterFirstOpen = fetchMock.mock.calls.length;
-
-    // Close the menu, then reopen it — this should trigger yet another fetch.
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("menuitem")).not.toBeInTheDocument());
-    await user.click(screen.getByRole("button"));
-    await screen.findByRole("menuitem", { name: /Build a blog/ });
-
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirstOpen);
-  });
-
-  it("offers a way back to live view when viewing history and no run is currently live", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            projects: [
-              {
-                id: "p-older",
-                ideaText: "Build a blog",
-                repoName: "idea-to-mvp-1",
-                createdAt: "2026-09-13T00:00:00.000Z",
-              },
-            ],
-            currentProjectId: null,
-          }),
-      }),
-    );
-    const onSelect = vi.fn();
-    const user = userEvent.setup();
-    render(<ProjectSwitcher selectedProjectId="p-older" onSelect={onSelect} />);
-    await waitFor(() => expect(screen.getByRole("button")).toBeInTheDocument());
-    await user.click(screen.getByRole("button"));
-
-    const backItem = await screen.findByRole("menuitem", { name: /back to live/i });
-    await user.click(backItem);
-
-    expect(onSelect).toHaveBeenCalledWith(null);
   });
 });

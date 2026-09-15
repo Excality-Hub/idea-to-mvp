@@ -12,6 +12,8 @@ export interface StageNodeData extends Record<string, unknown> {
   status: StageDisplayStatus;
   latestEvent: RunEvent | undefined;
   readOnly?: boolean;
+  /** Owning project — run controls post to /api/projects/:projectId/run/... */
+  projectId: string;
 }
 
 export type StageFlowNode = Node<StageNodeData, "stage">;
@@ -32,6 +34,7 @@ export function buildStageNodes(
   stageOrder: StageName[],
   labelFor: (stage: StageName) => string,
   readOnly: boolean,
+  projectId: string,
 ): StageFlowNode[] {
   return stageOrder.map((stage, index) => {
     const events = eventsByStage[stage];
@@ -45,6 +48,7 @@ export function buildStageNodes(
         status: deriveStageStatus(events),
         latestEvent: events?.[events.length - 1],
         readOnly,
+        projectId,
       },
     };
   });

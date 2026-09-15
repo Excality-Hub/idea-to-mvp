@@ -20,8 +20,11 @@ import { GithubClient } from "./github/client.js";
 import { readStarterFiles } from "./github/readStarterFiles.js";
 import { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch, resetWorkingTree } from "./git.js";
 import { RunController } from "./orchestrator/runController.js";
+import { RunControllerRegistry } from "./orchestrator/runControllerRegistry.js";
 import { createProjectStore } from "./orchestrator/projectStore.js";
+import { createRunStore } from "./orchestrator/runStore.js";
 import { createWorkflowStore } from "./orchestrator/workflowStore.js";
+import { migrateLegacyData } from "./orchestrator/migrateLegacyProjects.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -36,35 +39,47 @@ async function main(): Promise<void> {
       ? new CloudflareClient(config.cloudflareApiToken!, config.cloudflareAccountId!)
       : new RenderClient(config.renderApiKey!, config.renderOwnerId!);
   const agentStore = createAgentStore(fileURLToPath(new URL("../data/agents.json", import.meta.url)));
-  const workflowStore = createWorkflowStore(fileURLToPath(new URL("../data/workflows.json", import.meta.url)));
-  const projectStore = createProjectStore(fileURLToPath(new URL("../data/projects.json", import.meta.url)));
-  const controller = new RunController({
-    owner: config.targetGithubOwner,
-    starterDir,
-    githubToken: config.githubToken,
-    agentStore,
-    workflowStore,
-    projectStore,
-    deps: {
-      github: new GithubClient(octokit),
-      deploy: deployClient,
-      git: { cloneRepo, createAndCheckoutBranch, resetWorkingTree, pushBranch, diffAgainstBase },
-      agents: {
-        analyst: runAnalystAgent,
-        architect: runArchitectAgent,
-        developer: runDeveloperAgent,
-        qa: runQaAgent,
-        custom: runCustomAgent,
+
+  const projectsFile = fileURLToPath(new URL("../data/projects.json", import.meta.url));
+  const workflowsFile = fileURLToPath(new URL("../data/workflows.json", import.meta.url));
+  const runsFile = fileURLToPath(new URL("../data/runs.json", import.meta.url));
+  migrateLegacyData({ projectsFile, workflowsFile, runsFile });
+
+  const workflowStore = createWorkflowStore(workflowsFile);
+  const projectStore = createProjectStore(projectsFile);
+  const runStore = createRunStore(runsFile);
+
+  const registry = new RunControllerRegistry((projectId) => {
+    const controller = new RunController({
+      projectId,
+      owner: config.targetGithubOwner,
+      starterDir,
+      githubToken: config.githubToken,
+      agentStore,
+      workflowStore,
+      runStore,
+      projectStore,
+      deps: {
+        github: new GithubClient(octokit),
+        deploy: deployClient,
+        git: { cloneRepo, createAndCheckoutBranch, resetWorkingTree, pushBranch, diffAgainstBase },
+        agents: {
+          analyst: runAnalystAgent,
+          architect: runArchitectAgent,
+          developer: runDeveloperAgent,
+          qa: runQaAgent,
+          custom: runCustomAgent,
+        },
+        readStarterFiles,
       },
-      readStarterFiles,
-    },
+    });
+    controller.eventBus.onEvent((event) => {
+      console.log(`[${projectId}] [${event.stage}] ${event.status}: ${event.message}`);
+    });
+    return controller;
   });
 
-  controller.eventBus.onEvent((event) => {
-    console.log(`[${event.stage}] ${event.status}: ${event.message}`);
-  });
-
-  const app = createDashboardServer(controller, agentStore, workflowStore, projectStore);
+  const app = createDashboardServer(registry, agentStore, workflowStore, projectStore, runStore);
   app.listen(config.port, "127.0.0.1", () => {
     console.log(`Dashboard listening on http://localhost:${config.port}`);
   });

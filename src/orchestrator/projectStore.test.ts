@@ -2,20 +2,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createProjectStore } from "./projectStore.js";
-import type { RunEvent } from "./types.js";
+import { createProjectStore, generateRepoName } from "./projectStore.js";
 
 function tempFile(): string {
   const dir = mkdtempSync(join(tmpdir(), "project-store-test-"));
   return join(dir, "projects.json");
 }
-
-const sampleEvent: RunEvent = {
-  stage: "analyst",
-  status: "running",
-  message: "Analyzing idea",
-  timestamp: "2026-09-14T00:00:00.000Z",
-};
 
 describe("createProjectStore", () => {
   it("starts empty when the file doesn't exist yet", () => {
@@ -24,41 +16,56 @@ describe("createProjectStore", () => {
     expect(store.list()).toEqual([]);
   });
 
-  it("creates and gets a project record", () => {
+  it("creates and gets a project", () => {
     const store = createProjectStore(tempFile());
-    const record = {
+    const project = {
       id: "p1",
-      ideaText: "Build a todo app",
-      repoName: "idea-to-mvp-1",
-      createdAt: "2026-09-14T00:00:00.000Z",
-      events: [],
+      name: "Todo app project",
+      repoName: "todo-app-project-ab12cd34",
+      createdAt: "2026-09-15T00:00:00.000Z",
     };
 
-    store.create(record);
+    store.create(project);
 
-    expect(store.get("p1")).toEqual(record);
-    expect(store.list()).toEqual([record]);
+    expect(store.get("p1")).toEqual(project);
+    expect(store.list()).toEqual([project]);
   });
 
-  it("appends an event to an existing record's events", () => {
+  it("updates a project to record its repo once the first run creates it", () => {
     const store = createProjectStore(tempFile());
-    store.create({
+    const project = {
       id: "p1",
-      ideaText: "Build a todo app",
-      repoName: "idea-to-mvp-1",
-      createdAt: "2026-09-14T00:00:00.000Z",
-      events: [],
+      name: "Todo app project",
+      repoName: "todo-app-project-ab12cd34",
+      createdAt: "2026-09-15T00:00:00.000Z",
+    };
+    store.create(project);
+
+    store.update("p1", {
+      ...project,
+      repo: { owner: "org", htmlUrl: "https://github.com/org/app", cloneUrl: "https://github.com/org/app.git" },
     });
 
-    store.appendEvent("p1", sampleEvent);
+    expect(store.get("p1")?.repo).toEqual({
+      owner: "org",
+      htmlUrl: "https://github.com/org/app",
+      cloneUrl: "https://github.com/org/app.git",
+    });
+  });
+});
 
-    expect(store.get("p1")?.events).toEqual([sampleEvent]);
+describe("generateRepoName", () => {
+  it("slugifies the project name and appends a random suffix", () => {
+    const repoName = generateRepoName("My Todo App!");
+
+    expect(repoName).toMatch(/^my-todo-app-[0-9a-f]{8}$/);
   });
 
-  it("does nothing when appending an event to an unknown project id", () => {
-    const store = createProjectStore(tempFile());
+  it("produces different names for the same project name on repeated calls", () => {
+    expect(generateRepoName("Same Name")).not.toBe(generateRepoName("Same Name"));
+  });
 
-    expect(() => store.appendEvent("nope", sampleEvent)).not.toThrow();
-    expect(store.get("nope")).toBeUndefined();
+  it("falls back to a generic slug when the name has no alphanumeric characters", () => {
+    expect(generateRepoName("!!!")).toMatch(/^project-[0-9a-f]{8}$/);
   });
 });
