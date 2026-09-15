@@ -27,18 +27,22 @@ export function ProjectSwitcher({ activeProjectId, onSelect, variant = "header" 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | undefined>(undefined);
   const activeProject = projects.find((p) => p.id === activeProjectId);
   const label = activeProject ? truncate(activeProject.name) : "idea-to-mvp";
 
   async function handleCreate() {
     const name = newName.trim();
     if (!name) return;
+    setCreateError(undefined);
     setSubmitting(true);
     try {
       const project = await createProject(name);
       onSelect(project.id);
       setNewName("");
       setCreating(false);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Could not create this project. Try again.");
     } finally {
       setSubmitting(false);
     }
@@ -48,7 +52,10 @@ export function ProjectSwitcher({ activeProjectId, onSelect, variant = "header" 
     <DropdownMenu
       onOpenChange={(open) => {
         if (open) refetch();
-        else setCreating(false);
+        else {
+          setCreating(false);
+          setCreateError(undefined);
+        }
       }}
     >
       <DropdownMenuTrigger
@@ -99,11 +106,13 @@ export function ProjectSwitcher({ activeProjectId, onSelect, variant = "header" 
             <Button size="sm" onClick={handleCreate} disabled={!newName.trim() || submitting}>
               {submitting ? "Creating..." : "Create"}
             </Button>
+            {createError && <p className="text-sm text-destructive">{createError}</p>}
           </div>
         ) : (
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
+              setCreateError(undefined);
               setCreating(true);
             }}
           >

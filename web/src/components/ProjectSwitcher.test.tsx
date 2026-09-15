@@ -94,6 +94,32 @@ describe("ProjectSwitcher", () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith("p-new"));
   });
 
+  it("shows an error and re-enables the button when creating a project fails", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(projects) });
+      }
+      if (url === "/api/projects" && init?.method === "POST") {
+        return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) });
+      }
+      return Promise.reject(new Error(`unexpected fetch ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(<ProjectSwitcher activeProjectId={null} onSelect={onSelect} />);
+    await waitFor(() => expect(screen.getByRole("button")).toBeInTheDocument());
+    await user.click(screen.getByRole("button"));
+    await user.click(await screen.findByRole("menuitem", { name: /New project/ }));
+
+    await user.type(screen.getByLabelText("Project name"), "New idea");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByText("Failed to create project (500)")).toBeInTheDocument();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+  });
+
   it("refetches the project list every time the dropdown is opened", async () => {
     const fetchMock = stubFetch();
     const user = userEvent.setup();
