@@ -12,7 +12,17 @@ describe("useRunPlan", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const { result } = renderHook(() => useRunPlan(true, 0));
+    const { result } = renderHook(() => useRunPlan("p1", true, 0));
+
+    expect(result.current).toEqual(STAGE_ORDER);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns the default backbone order without fetching when projectId is null", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useRunPlan(null, false, 0));
 
     expect(result.current).toEqual(STAGE_ORDER);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -27,7 +37,7 @@ describe("useRunPlan", () => {
       }),
     );
 
-    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan(isIdle, 0), {
+    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan("p1", isIdle, 0), {
       initialProps: { isIdle: true },
     });
     expect(result.current).toEqual(STAGE_ORDER);
@@ -37,13 +47,13 @@ describe("useRunPlan", () => {
     await waitFor(() =>
       expect(result.current).toEqual(["create_repo", "analyst", "custom:sec-1", "architect"]),
     );
-    expect(fetch).toHaveBeenCalledWith("/api/run/plan");
+    expect(fetch).toHaveBeenCalledWith("/api/projects/p1/run/plan");
   });
 
   it("falls back to the default backbone order when the plan endpoint returns an empty array", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) }));
 
-    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan(isIdle, 0), {
+    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan("p1", isIdle, 0), {
       initialProps: { isIdle: true },
     });
 
@@ -59,7 +69,7 @@ describe("useRunPlan", () => {
       vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(["create_repo", "analyst"]) }),
     );
 
-    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan(isIdle, 0), {
+    const { result, rerender } = renderHook(({ isIdle }) => useRunPlan("p1", isIdle, 0), {
       initialProps: { isIdle: true },
     });
     rerender({ isIdle: false });
@@ -73,18 +83,12 @@ describe("useRunPlan", () => {
   it("refetches the plan when runGeneration changes even though isIdle did not", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(["create_repo", "analyst"]),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(["create_repo", "architect", "qa"]),
-      });
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(["create_repo", "analyst"]) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(["create_repo", "architect", "qa"]) });
     vi.stubGlobal("fetch", fetchMock);
 
     const { result, rerender } = renderHook(
-      ({ isIdle, runGeneration }) => useRunPlan(isIdle, runGeneration),
+      ({ isIdle, runGeneration }) => useRunPlan("p1", isIdle, runGeneration),
       { initialProps: { isIdle: false, runGeneration: 0 } },
     );
 
@@ -94,5 +98,18 @@ describe("useRunPlan", () => {
 
     await waitFor(() => expect(result.current).toEqual(["create_repo", "architect", "qa"]));
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches when projectId changes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(["create_repo"]) });
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = renderHook(({ projectId }) => useRunPlan(projectId, false, 0), {
+      initialProps: { projectId: "p1" },
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/run/plan"));
+
+    rerender({ projectId: "p2" });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/projects/p2/run/plan"));
   });
 });
