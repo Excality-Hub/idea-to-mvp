@@ -57,7 +57,7 @@ describe("useProjects", () => {
   it("throws from createProject when the request fails", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn((url: string, init?: RequestInit) => {
+      vi.fn((_url: string, init?: RequestInit) => {
         if (!init) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
         return Promise.resolve({ ok: false, status: 400 });
       }),
