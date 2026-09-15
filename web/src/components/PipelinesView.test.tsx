@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PipelinesView } from "./PipelinesView";
 
 const defaultWorkflow = {
-  id: "default",
+  id: "p1-default",
+  projectId: "p1",
   name: "Default",
   slots: {},
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -16,7 +17,7 @@ function stubFetch(overrides: { workflows?: unknown; agents?: unknown } = {}) {
     if (url === "/api/agents") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(overrides.agents ?? []) });
     }
-    if (url === "/api/workflows" && !init) {
+    if (url === "/api/projects/p1/workflows" && !init) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(overrides.workflows ?? [defaultWorkflow]) });
     }
     if (init?.method === "DELETE") {
@@ -36,10 +37,10 @@ describe("PipelinesView", () => {
   it("lists existing workflows, showing the default with no Edit/Delete buttons", async () => {
     stubFetch({ workflows: [defaultWorkflow] });
 
-    render(<PipelinesView />);
+    render(<PipelinesView projectId="p1" />);
 
     await waitFor(() => expect(screen.getByText("Default")).toBeInTheDocument());
-    const row = within(screen.getByTestId("workflow-row-default"));
+    const row = within(screen.getByTestId("workflow-row-p1-default"));
     expect(row.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(row.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
@@ -48,7 +49,7 @@ describe("PipelinesView", () => {
     stubFetch({ workflows: [defaultWorkflow] });
     const user = userEvent.setup();
 
-    render(<PipelinesView />);
+    render(<PipelinesView projectId="p1" />);
     await waitFor(() => expect(screen.getByText("Default")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "New pipeline" }));
@@ -61,7 +62,7 @@ describe("PipelinesView", () => {
     stubFetch({ workflows: [defaultWorkflow, customWorkflow] });
     const user = userEvent.setup();
 
-    render(<PipelinesView />);
+    render(<PipelinesView projectId="p1" />);
     await waitFor(() => expect(screen.getByText("Custom")).toBeInTheDocument());
 
     await user.click(within(screen.getByTestId("workflow-row-custom-1")).getByRole("button", { name: "Edit" }));
@@ -73,11 +74,11 @@ describe("PipelinesView", () => {
     const fetchMock = stubFetch({ workflows: [defaultWorkflow, customWorkflow] });
     const user = userEvent.setup();
 
-    render(<PipelinesView />);
+    render(<PipelinesView projectId="p1" />);
     await waitFor(() => expect(screen.getByText("Custom")).toBeInTheDocument());
 
     await user.click(within(screen.getByTestId("workflow-row-custom-1")).getByRole("button", { name: "Delete" }));
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/workflows/custom-1", { method: "DELETE" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/workflows/custom-1", { method: "DELETE" });
   });
 });
