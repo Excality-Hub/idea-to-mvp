@@ -13,8 +13,9 @@ import {
   type RunOutcome,
 } from "./runOrchestrator.js";
 import type { AgentStore } from "../agents/agentStore.js";
-import { DEFAULT_WORKFLOW_ID, type WorkflowStore } from "./workflowStore.js";
+import { defaultWorkflowIdFor, type WorkflowStore } from "./workflowStore.js";
 import type { ProjectStore } from "./projectStore.js";
+import type { RunStore } from "./runStore.js";
 import {
   BACKBONE_STAGES,
   isGateEntry,
@@ -28,11 +29,13 @@ import {
 export type RunControllerStatus = "idle" | "running" | "stopped" | "done";
 
 export interface RunControllerConfig {
+  projectId: string;
   owner: string;
   starterDir: string;
   githubToken: string;
   agentStore: AgentStore;
   workflowStore: WorkflowStore;
+  runStore: RunStore;
   projectStore: ProjectStore;
   deps: Omit<OrchestratorDeps, "eventBus">;
 }
@@ -46,8 +49,8 @@ export class RunController {
   private runPromise: Promise<RunOutcome> | undefined;
   private busReplacedEmitter = new EventEmitter();
   private plan: StageName[] | undefined;
-  private currentProjectId: string | undefined;
-  private unsubscribeProjectAppend: (() => void) | undefined;
+  private currentRunId: string | undefined;
+  private unsubscribeRunAppend: (() => void) | undefined;
 
   constructor(private config: RunControllerConfig) {}
 
@@ -63,8 +66,8 @@ export class RunController {
     return this.plan;
   }
 
-  getCurrentProjectId(): string | undefined {
-    return this.currentProjectId;
+  getCurrentRunId(): string | undefined {
+    return this.currentRunId;
   }
 
   onBusReplaced(listener: () => void): () => void {
@@ -72,12 +75,12 @@ export class RunController {
     return () => this.busReplacedEmitter.off("replaced", listener);
   }
 
-  start(ideaText: string, workflowId: string = DEFAULT_WORKFLOW_ID): void {
+  start(ideaText: string, workflowId: string = defaultWorkflowIdFor(this.config.projectId)): void {
     if (this.status === "running" || this.status === "stopped") {
       throw new Error("A run is already active");
     }
     const workflow = this.config.workflowStore.get(workflowId);
-    if (!workflow) {
+    if (!workflow || workflow.projectId !== this.config.projectId) {
       throw new Error(`Unknown workflow: ${workflowId}`);
     }
     const resolveEntries = (ids: string[]): SlotEntry[] =>
@@ -93,32 +96,47 @@ export class RunController {
       ) as Partial<Record<BackboneStage, SlotEntry[]>>,
     };
     if (this.status === "done") {
-      this.unsubscribeProjectAppend?.();
+      this.unsubscribeRunAppend?.();
       this.eventBus = new RunEventBus();
       this.busReplacedEmitter.emit("replaced");
     }
     this.plan = [...buildStageSteps(resolvedWorkflow).map((step) => step.name), "tracing_pack"];
+    const project = this.config.projectStore.get(this.config.projectId)!;
     const params: OrchestratorParams = {
       ideaText,
       owner: this.config.owner,
-      repoName: `idea-to-mvp-${Date.now()}`,
+      repoName: project.repoName,
       starterDir: this.config.starterDir,
       workDir: mkdtempSync(join(tmpdir(), "idea-to-mvp-")),
       githubToken: this.config.githubToken,
       resolvedWorkflow,
+      existingRepo: project.repo,
     };
-    this.currentProjectId = randomUUID();
-    this.config.projectStore.create({
-      id: this.currentProjectId,
+    this.currentRunId = randomUUID();
+    this.config.runStore.create({
+      id: this.currentRunId,
+      projectId: this.config.projectId,
       ideaText,
-      repoName: params.repoName,
+      workflowId,
       createdAt: new Date().toISOString(),
       events: [],
     });
-    const projectId = this.currentProjectId!;
-    this.unsubscribeProjectAppend = this.eventBus.onEvent((event) => {
-      this.config.projectStore.appendEvent(projectId, event);
+    const runId = this.currentRunId;
+    this.unsubscribeRunAppend = this.eventBus.onEvent((event) => {
+      this.config.runStore.appendEvent(runId, event);
     });
+    if (!project.repo) {
+      const unsubscribeRepoCapture = this.eventBus.onEvent((event) => {
+        if (event.stage === "create_repo" && event.status === "done" && event.output) {
+          const output = event.output as { htmlUrl: string; cloneUrl: string };
+          this.config.projectStore.update(this.config.projectId, {
+            ...project,
+            repo: { owner: this.config.owner, htmlUrl: output.htmlUrl, cloneUrl: output.cloneUrl },
+          });
+          unsubscribeRepoCapture();
+        }
+      });
+    }
     this.runFrom(params, undefined);
   }
 

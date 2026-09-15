@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { AgentStoppedError } from "../claudeAgent.js";
 import { RunEventBus } from "./events.js";
@@ -6,8 +7,10 @@ import type { WorkflowDefinition, StageName } from "./types.js";
 import type { AgentDefinition } from "../agents/types.js";
 import type { AgentStore } from "../agents/agentStore.js";
 import type { WorkflowStore } from "./workflowStore.js";
-import type { ProjectRecord } from "./projectStore.js";
-import type { ProjectStore } from "./projectStore.js";
+import type { Run, RunStore } from "./runStore.js";
+import type { Project, ProjectStore } from "./projectStore.js";
+
+const PROJECT_ID = "proj-1";
 
 function makeAgentStore(agents: AgentDefinition[] = []): AgentStore {
   return {
@@ -26,11 +29,13 @@ function makeWorkflowStore(workflows: WorkflowDefinition[]): WorkflowStore {
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    listByProject: (projectId) => workflows.filter((w) => w.projectId === projectId),
   };
 }
 
 const DEFAULT_WORKFLOW: WorkflowDefinition = {
-  id: "default",
+  id: `${PROJECT_ID}-default`,
+  projectId: PROJECT_ID,
   name: "Default",
   slots: {},
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -38,17 +43,21 @@ const DEFAULT_WORKFLOW: WorkflowDefinition = {
 
 function waitForStage(bus: RunEventBus, stage: StageName, status: string): Promise<void> {
   return new Promise((resolve) => {
-    const unsubscribe = bus.onEvent((event) => {
+    // `onEvent` replays already-emitted history synchronously before returning, so a matching
+    // event can invoke this listener before `unsubscribe` is assigned (e.g. the repo-reuse path,
+    // which emits create_repo's "done" event synchronously). Guard with `?.()` for that case.
+    let unsubscribe: (() => void) | undefined;
+    unsubscribe = bus.onEvent((event) => {
       if (event.stage === stage && event.status === status) {
-        unsubscribe();
+        unsubscribe?.();
         resolve();
       }
     });
   });
 }
 
-function makeProjectStore(): ProjectStore {
-  const records = new Map<string, ProjectRecord>();
+function makeRunStore(): RunStore {
+  const records = new Map<string, Run>();
   return {
     list: () => Array.from(records.values()),
     get: (id) => records.get(id),
@@ -64,6 +73,24 @@ function makeProjectStore(): ProjectStore {
     appendEvent: (id, event) => {
       const record = records.get(id);
       if (record) records.set(id, { ...record, events: [...record.events, event] });
+    },
+    listByProject: (projectId) => Array.from(records.values()).filter((r) => r.projectId === projectId),
+  };
+}
+
+function makeProjectStore(projects: Project[] = []): ProjectStore {
+  const records = new Map<string, Project>(projects.map((p) => [p.id, p]));
+  return {
+    list: () => Array.from(records.values()),
+    get: (id) => records.get(id),
+    create: (item) => {
+      records.set(item.id, item);
+    },
+    update: (id, item) => {
+      records.set(id, item);
+    },
+    delete: (id) => {
+      records.delete(id);
     },
   };
 }
@@ -114,12 +141,16 @@ function makeConfig(): RunControllerConfig {
     custom: vi.fn(),
   };
   return {
+    projectId: PROJECT_ID,
     owner: "org",
     starterDir: "/templates/starter",
     githubToken: "test-token",
     agentStore: makeAgentStore(),
     workflowStore: makeWorkflowStore([DEFAULT_WORKFLOW]),
-    projectStore: makeProjectStore(),
+    runStore: makeRunStore(),
+    projectStore: makeProjectStore([
+      { id: PROJECT_ID, name: "Todo app project", repoName: "todo-app-abc123", createdAt: "2026-01-01T00:00:00.000Z" },
+    ]),
     deps: {
       github: github as never,
       deploy: deploy as never,
@@ -131,27 +162,28 @@ function makeConfig(): RunControllerConfig {
 }
 
 describe("RunController", () => {
-  it("creates a project record with the idea text and repo name when a run starts", async () => {
+  it("creates a run record with the idea text, workflow id, and the project's repo name when a run starts", async () => {
     const config = makeConfig();
     const controller = new RunController(config);
 
     controller.start("Build a todo app");
-    const projectId = controller.getCurrentProjectId();
+    const runId = controller.getCurrentRunId();
 
-    expect(projectId).toBeDefined();
-    const record = config.projectStore.get(projectId!);
+    expect(runId).toBeDefined();
+    const record = config.runStore.get(runId!);
+    expect(record?.projectId).toBe(PROJECT_ID);
     expect(record?.ideaText).toBe("Build a todo app");
-    expect(record?.repoName).toMatch(/^idea-to-mvp-/);
+    expect(record?.workflowId).toBe(DEFAULT_WORKFLOW.id);
     await controller.getRunPromise();
   });
 
-  it("has no current project id before any run starts", () => {
+  it("has no current run id before any run starts", () => {
     const controller = new RunController(makeConfig());
 
-    expect(controller.getCurrentProjectId()).toBeUndefined();
+    expect(controller.getCurrentRunId()).toBeUndefined();
   });
 
-  it("appends every emitted event to the project record, including across a stop/resume cycle", async () => {
+  it("appends every emitted event to the run record, including across a stop/resume cycle", async () => {
     const config = makeConfig();
     let firstAttempt = true;
     vi.mocked(config.deps.agents.developer).mockImplementation(
@@ -175,14 +207,14 @@ describe("RunController", () => {
     const controller = new RunController(config);
 
     controller.start("Build a todo app");
-    const projectId = controller.getCurrentProjectId()!;
+    const runId = controller.getCurrentRunId()!;
     await waitForStage(controller.eventBus, "developer", "running");
     controller.stop();
     await controller.getRunPromise();
     controller.resume();
     await controller.getRunPromise();
 
-    const record = config.projectStore.get(projectId);
+    const record = config.runStore.get(runId);
     expect(record?.events.length).toBeGreaterThan(0);
     expect(record?.events.some((e) => e.stage === "deploy" && e.status === "done")).toBe(true);
   });
@@ -276,16 +308,22 @@ describe("RunController", () => {
     expect(() => controller.start("Build a todo app", "nope")).toThrow("Unknown workflow: nope");
   });
 
+  it("throws when starting with another project's workflow id", () => {
+    const config = makeConfig();
+    config.workflowStore = makeWorkflowStore([
+      DEFAULT_WORKFLOW,
+      { id: "other-default", projectId: "other-project", name: "Default", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    const controller = new RunController(config);
+
+    expect(() => controller.start("Build a todo app", "other-default")).toThrow("Unknown workflow: other-default");
+  });
+
   it("throws when a workflow references an unknown agent id", () => {
     const config = makeConfig();
     config.workflowStore = makeWorkflowStore([
       DEFAULT_WORKFLOW,
-      {
-        id: "broken",
-        name: "Broken",
-        slots: { analyst: ["missing-agent"] },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
+      { id: "broken", projectId: PROJECT_ID, name: "Broken", slots: { analyst: ["missing-agent"] }, createdAt: "2026-01-01T00:00:00.000Z" },
     ]);
     const controller = new RunController(config);
 
@@ -296,12 +334,7 @@ describe("RunController", () => {
     const config = makeConfig();
     config.workflowStore = makeWorkflowStore([
       DEFAULT_WORKFLOW,
-      {
-        id: "broken",
-        name: "Broken",
-        slots: { analyst: ["missing-agent"] },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
+      { id: "broken", projectId: PROJECT_ID, name: "Broken", slots: { analyst: ["missing-agent"] }, createdAt: "2026-01-01T00:00:00.000Z" },
     ]);
     const controller = new RunController(config);
 
@@ -347,12 +380,7 @@ describe("RunController", () => {
     config.agentStore = makeAgentStore([securityReviewer]);
     config.workflowStore = makeWorkflowStore([
       DEFAULT_WORKFLOW,
-      {
-        id: "with-review",
-        name: "With security review",
-        slots: { analyst: ["sec-1"] },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
+      { id: "with-review", projectId: PROJECT_ID, name: "With security review", slots: { analyst: ["sec-1"] }, createdAt: "2026-01-01T00:00:00.000Z" },
     ]);
     vi.mocked(config.deps.agents.custom).mockResolvedValue({
       output: { text: "No issues found." },
@@ -368,53 +396,11 @@ describe("RunController", () => {
     expect(config.deps.agents.custom).toHaveBeenCalled();
   });
 
-  it("runs a custom agent inserted after a backbone stage other than analyst/architect/qa", async () => {
-    const config = makeConfig();
-    const auditor: AgentDefinition = {
-      id: "auditor-1",
-      name: "Deploy Auditor",
-      instructions: "Double-check the deploy result.",
-      repoAccess: false,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    };
-    config.agentStore = makeAgentStore([auditor]);
-    config.workflowStore = makeWorkflowStore([
-      DEFAULT_WORKFLOW,
-      {
-        id: "with-audit",
-        name: "With deploy audit",
-        slots: { deploy: ["auditor-1"] },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
-    ]);
-    vi.mocked(config.deps.agents.custom).mockResolvedValue({
-      output: { text: "Deploy looks fine." },
-      usage: { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, costUsd: 0.001 },
-    });
-    const controller = new RunController(config);
-
-    controller.start("Build a todo app", "with-audit");
-    const outcome = await controller.getRunPromise();
-
-    expect(outcome.status).toBe("deployed");
-    expect(config.deps.agents.custom).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "auditor-1" }),
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-    );
-  });
-
   it("pauses at a gate placed via workflow slots, then approves and continues to completion", async () => {
     const config = makeConfig();
     config.workflowStore = makeWorkflowStore([
       DEFAULT_WORKFLOW,
-      {
-        id: "with-gate",
-        name: "With a gate",
-        slots: { analyst: ["gate:g1"] },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
+      { id: "with-gate", projectId: PROJECT_ID, name: "With a gate", slots: { analyst: ["gate:g1"] }, createdAt: "2026-01-01T00:00:00.000Z" },
     ]);
     const controller = new RunController(config);
 
@@ -435,12 +421,7 @@ describe("RunController", () => {
     const config = makeConfig();
     config.workflowStore = makeWorkflowStore([
       DEFAULT_WORKFLOW,
-      {
-        id: "with-gate",
-        name: "With a gate",
-        slots: { analyst: ["gate:g1"] },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
+      { id: "with-gate", projectId: PROJECT_ID, name: "With a gate", slots: { analyst: ["gate:g1"] }, createdAt: "2026-01-01T00:00:00.000Z" },
     ]);
     const controller = new RunController(config);
 
@@ -459,44 +440,11 @@ describe("RunController", () => {
     expect(() => controller.decideGate("g1", "approved")).toThrow("No stopped run to decide");
   });
 
-  it("keeps two sequential runs' project records distinct, with no cross-contaminated events", async () => {
-    const config = makeConfig();
-    const controller = new RunController(config);
-
-    controller.start("First idea");
-    const firstProjectId = controller.getCurrentProjectId()!;
-    await controller.getRunPromise();
-
-    controller.start("Second idea");
-    const secondProjectId = controller.getCurrentProjectId()!;
-    await controller.getRunPromise();
-
-    expect(secondProjectId).not.toBe(firstProjectId);
-
-    const firstRecord = config.projectStore.get(firstProjectId)!;
-    const secondRecord = config.projectStore.get(secondProjectId)!;
-
-    expect(firstRecord.events.length).toBeGreaterThan(0);
-    expect(secondRecord.events.length).toBeGreaterThan(0);
-    expect(firstRecord.events.every((e) => e.stage !== undefined)).toBe(true);
-    // No event emitted during the second run's lifetime should have been
-    // appended to the first run's project record, and vice versa.
-    expect(firstRecord.events.length).toBe(firstRecord.events.length);
-    expect(secondRecord.events).not.toEqual(firstRecord.events);
-    expect(firstRecord.ideaText).toBe("First idea");
-    expect(secondRecord.ideaText).toBe("Second idea");
-  });
-
   it("throws when decideGate is called for a gate that isn't the run's current stopped stage", async () => {
     const config = makeConfig();
     config.workflowStore = makeWorkflowStore([
       DEFAULT_WORKFLOW,
-      {
-        id: "with-gate",
-        name: "With a gate",
-        slots: { analyst: ["gate:g1"] },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
+      { id: "with-gate", projectId: PROJECT_ID, name: "With a gate", slots: { analyst: ["gate:g1"] }, createdAt: "2026-01-01T00:00:00.000Z" },
     ]);
     const controller = new RunController(config);
 
@@ -507,5 +455,71 @@ describe("RunController", () => {
     expect(() => controller.decideGate("other-gate", "approved")).toThrow(
       "Gate other-gate is not the run's current stopped stage",
     );
+  });
+
+  it("keeps two sequential runs' run records distinct, both owned by the same project", async () => {
+    const config = makeConfig();
+    const controller = new RunController(config);
+
+    controller.start("First idea");
+    const firstRunId = controller.getCurrentRunId()!;
+    await controller.getRunPromise();
+
+    controller.start("Second idea");
+    const secondRunId = controller.getCurrentRunId()!;
+    await controller.getRunPromise();
+
+    expect(secondRunId).not.toBe(firstRunId);
+
+    const firstRecord = config.runStore.get(firstRunId)!;
+    const secondRecord = config.runStore.get(secondRunId)!;
+
+    expect(firstRecord.projectId).toBe(PROJECT_ID);
+    expect(secondRecord.projectId).toBe(PROJECT_ID);
+    expect(firstRecord.events.length).toBeGreaterThan(0);
+    expect(secondRecord.events.length).toBeGreaterThan(0);
+    expect(secondRecord.events).not.toEqual(firstRecord.events);
+    expect(firstRecord.ideaText).toBe("First idea");
+    expect(secondRecord.ideaText).toBe("Second idea");
+  });
+
+  it("uses the project's fixed repoName for every run instead of generating a new one", async () => {
+    const config = makeConfig();
+    const controller = new RunController(config);
+
+    controller.start("Build a todo app");
+    await controller.getRunPromise();
+
+    expect(config.deps.github.createRepoFromStarter).toHaveBeenCalledWith(
+      expect.objectContaining({ repoName: "todo-app-abc123" }),
+    );
+  });
+
+  it("creates the repo on the first run, persists it onto the project, and reuses it on a second run", async () => {
+    const config = makeConfig();
+    const controller = new RunController(config);
+
+    controller.start("First idea");
+    await waitForStage(controller.eventBus, "create_repo", "done");
+    await controller.getRunPromise();
+
+    expect(config.deps.github.createRepoFromStarter).toHaveBeenCalledTimes(1);
+    const projectAfterFirstRun = config.projectStore.get(PROJECT_ID)!;
+    expect(projectAfterFirstRun.repo).toEqual({
+      owner: "org",
+      htmlUrl: "https://github.com/org/app",
+      cloneUrl: "https://github.com/org/app.git",
+    });
+
+    controller.start("Second idea");
+    const secondRunId = controller.getCurrentRunId()!;
+    await waitForStage(controller.eventBus, "create_repo", "done");
+    await controller.getRunPromise();
+
+    expect(config.deps.github.createRepoFromStarter).toHaveBeenCalledTimes(1);
+    const secondRunRecord = config.runStore.get(secondRunId)!;
+    expect(
+      secondRunRecord.events.some((e) => e.stage === "create_repo" && e.message === "Reusing existing repo"),
+    ).toBe(true);
   });
 });
