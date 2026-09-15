@@ -29,6 +29,7 @@ export function RunDetailView({ run }: RunDetailViewProps) {
       </div>
       <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card">
         <StageFlowGraph
+          projectId={run.projectId}
           eventsByStage={eventsByStage}
           stageOrder={stageOrder}
           labelFor={labelFor}

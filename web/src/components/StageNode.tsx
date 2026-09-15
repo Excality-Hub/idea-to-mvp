@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
 import { STAGE_STATUS_CONFIG } from "@/components/status";
@@ -5,12 +6,27 @@ import { cn } from "@/lib/utils";
 import { isAbortableStage, isGateStage } from "@/types";
 import { STAGE_NODE_WIDTH, type StageFlowNode } from "@/lib/workflowGraph";
 
-async function postRunAction(path: string): Promise<void> {
-  await fetch(path, { method: "POST" });
+/** Returns an error message when the action failed, or undefined on success. */
+async function postRunAction(path: string): Promise<string | undefined> {
+  let res: Response;
+  try {
+    res = await fetch(path, { method: "POST" });
+  } catch {
+    return "Could not reach the server";
+  }
+  if (res.ok) return undefined;
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  return body.error ?? `Request failed (${res.status})`;
 }
 
 export function StageNode({ data }: NodeProps<StageFlowNode>) {
-  const { stage, label, status, latestEvent, readOnly } = data;
+  const { stage, label, status, latestEvent, readOnly, projectId } = data;
+  const [actionError, setActionError] = useState<string | undefined>(undefined);
+
+  async function runAction(path: string): Promise<void> {
+    setActionError(await postRunAction(path));
+  }
+
   const config = STAGE_STATUS_CONFIG[status];
   const Icon = config.icon;
   const abortable = isAbortableStage(stage);
@@ -37,6 +53,7 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
             <p className="mt-0.5 truncate text-sm text-muted-foreground">
               {latestEvent ? latestEvent.message : "Waiting for this stage to start"}
             </p>
+            {actionError && <p className="mt-0.5 truncate text-sm text-destructive">{actionError}</p>}
           </div>
         </button>
         {abortable && status === "running" && !readOnly && (
@@ -46,7 +63,7 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
             size="sm"
             onClick={(event) => {
               event.stopPropagation();
-              void postRunAction("/api/run/stop");
+              void runAction(`/api/projects/${projectId}/run/stop`);
             }}
           >
             Stop
@@ -59,7 +76,7 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
               size="sm"
               onClick={(event) => {
                 event.stopPropagation();
-                void postRunAction(`/api/run/gates/${gateId}/approve`);
+                void runAction(`/api/projects/${projectId}/run/gates/${gateId}/approve`);
               }}
             >
               Approve
@@ -70,7 +87,7 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
               size="sm"
               onClick={(event) => {
                 event.stopPropagation();
-                void postRunAction(`/api/run/gates/${gateId}/reject`);
+                void runAction(`/api/projects/${projectId}/run/gates/${gateId}/reject`);
               }}
             >
               Reject
@@ -83,7 +100,7 @@ export function StageNode({ data }: NodeProps<StageFlowNode>) {
             size="sm"
             onClick={(event) => {
               event.stopPropagation();
-              void postRunAction("/api/run/resume");
+              void runAction(`/api/projects/${projectId}/run/resume`);
             }}
           >
             Resume

@@ -9,6 +9,7 @@ import type { StageName } from "@/types";
 const nodeTypes = { stage: StageNode };
 
 export interface StageFlowGraphProps {
+  projectId: string;
   eventsByStage: EventsByStage;
   stageOrder: StageName[];
   labelFor: (stage: StageName) => string;
@@ -16,10 +17,17 @@ export interface StageFlowGraphProps {
   readOnly?: boolean;
 }
 
-export function StageFlowGraph({ eventsByStage, stageOrder, labelFor, onSelectStage, readOnly = false }: StageFlowGraphProps) {
+export function StageFlowGraph({
+  projectId,
+  eventsByStage,
+  stageOrder,
+  labelFor,
+  onSelectStage,
+  readOnly = false,
+}: StageFlowGraphProps) {
   const nodes = useMemo(
-    () => buildStageNodes(eventsByStage, stageOrder, labelFor, readOnly),
-    [eventsByStage, stageOrder, labelFor, readOnly],
+    () => buildStageNodes(eventsByStage, stageOrder, labelFor, readOnly, projectId),
+    [eventsByStage, stageOrder, labelFor, readOnly, projectId],
   );
   const edges = useMemo(() => buildStageEdges(eventsByStage, stageOrder), [eventsByStage, stageOrder]);
 

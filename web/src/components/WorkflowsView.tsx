@@ -21,6 +21,7 @@ export function WorkflowsView({ projectId, eventsByStage }: WorkflowsViewProps) 
   const [ideaText, setIdeaText] = useState("");
   const [workflowId, setWorkflowId] = useState(() => defaultWorkflowIdFor(projectId));
   const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | undefined>(undefined);
   const [showStartForm, setShowStartForm] = useState(false);
   const [runGeneration, setRunGeneration] = useState(0);
 
@@ -38,13 +39,19 @@ export function WorkflowsView({ projectId, eventsByStage }: WorkflowsViewProps) 
   const selectedEvents = selectedStage ? (eventsByStage[selectedStage] ?? []) : [];
 
   async function handleStart() {
+    setStartError(undefined);
     setStarting(true);
     try {
-      await fetch(`/api/projects/${projectId}/run`, {
+      const res = await fetch(`/api/projects/${projectId}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ideaText, workflowId }),
       });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setStartError(body.error ?? `Could not start this run (${res.status})`);
+        return;
+      }
       setRunGeneration((g) => g + 1);
     } finally {
       setStarting(false);
@@ -100,10 +107,12 @@ export function WorkflowsView({ projectId, eventsByStage }: WorkflowsViewProps) 
           <Button onClick={handleStart} disabled={!ideaText.trim() || starting}>
             {starting ? "Starting..." : "Start run"}
           </Button>
+          {startError && <p className="text-sm text-destructive">{startError}</p>}
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card">
           <StageFlowGraph
+            projectId={projectId}
             eventsByStage={eventsByStage}
             stageOrder={stageOrder}
             labelFor={labelFor}

@@ -8,15 +8,20 @@ const labelFor = (stage: StageName) =>
 
 describe("buildStageNodes", () => {
   it("builds one node per stage in the given order", () => {
-    const nodes = buildStageNodes({}, STAGE_ORDER, labelFor, false);
+    const nodes = buildStageNodes({}, STAGE_ORDER, labelFor, false, "p1");
     expect(nodes).toHaveLength(11);
     expect(nodes[0]).toMatchObject({ id: "create_repo", type: "stage", position: { x: 0, y: 0 } });
     expect(nodes[1].position).toEqual({ x: STAGE_NODE_X_SPACING, y: 0 });
     expect(nodes[10]).toMatchObject({ id: "tracing_pack" });
   });
 
+  it("puts the owning project id on every node so run controls can address it", () => {
+    const nodes = buildStageNodes({}, STAGE_ORDER, labelFor, false, "p1");
+    expect(nodes.every((n) => n.data.projectId === "p1")).toBe(true);
+  });
+
   it("derives pending status and no latest event for a stage with no events", () => {
-    const nodes = buildStageNodes({}, STAGE_ORDER, labelFor, false);
+    const nodes = buildStageNodes({}, STAGE_ORDER, labelFor, false, "p1");
     const analyst = nodes.find((n) => n.id === "analyst");
     expect(analyst?.data.status).toBe("pending");
     expect(analyst?.data.latestEvent).toBeUndefined();
@@ -29,7 +34,7 @@ describe("buildStageNodes", () => {
         { stage: "analyst", status: "done", message: "Todo app summary", timestamp: "2026-01-01T00:01:00.000Z" },
       ],
     };
-    const nodes = buildStageNodes(eventsByStage, STAGE_ORDER, labelFor, false);
+    const nodes = buildStageNodes(eventsByStage, STAGE_ORDER, labelFor, false, "p1");
     const analyst = nodes.find((n) => n.id === "analyst");
     expect(analyst?.data.status).toBe("done");
     expect(analyst?.data.latestEvent?.message).toBe("Todo app summary");
@@ -37,7 +42,7 @@ describe("buildStageNodes", () => {
 
   it("builds a node for a custom stage using the given label resolver", () => {
     const order: StageName[] = ["analyst", "custom:sec-1", "architect"];
-    const nodes = buildStageNodes({}, order, () => "Security Reviewer", false);
+    const nodes = buildStageNodes({}, order, () => "Security Reviewer", false, "p1");
     expect(nodes[1]).toMatchObject({ id: "custom:sec-1", data: { label: "Security Reviewer" } });
   });
 });

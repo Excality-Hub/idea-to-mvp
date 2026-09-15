@@ -115,6 +115,21 @@ describe("WorkflowsView", () => {
     );
   });
 
+  it("surfaces the server's error when starting a run is rejected", async () => {
+    stubFetch({
+      run: { ok: false, status: 409, json: () => Promise.resolve({ error: "A run is already active" }) },
+    });
+    const user = userEvent.setup();
+    render(<WorkflowsView projectId="p1" eventsByStage={{}} />);
+    await waitFor(() => expect(screen.getByLabelText("Pipeline")).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText("Idea & requirements"), "Build a todo app");
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    expect(await screen.findByText("A run is already active")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start run" })).toBeInTheDocument();
+  });
+
   it("does not show the idea form once a run has started", async () => {
     render(<WorkflowsView projectId="p1" eventsByStage={eventsByStage} />);
     await waitFor(() => expect(screen.getByText("Analyst")).toBeInTheDocument());
