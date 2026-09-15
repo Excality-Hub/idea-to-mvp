@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { GithubClient } from "../github/client.js";
 import type { readStarterFiles as ReadStarterFiles } from "../github/readStarterFiles.js";
 import type { cloneRepo, createAndCheckoutBranch, diffAgainstBase, pushBranch, resetWorkingTree } from "../git.js";
@@ -63,6 +64,11 @@ export interface OrchestratorDeps {
 const BASE_BRANCH = "main";
 const TRACING_PACK_PATH = "TRACING_PACK.md";
 
+/** `<repoName>-<6 hex>` — unique per run, so repeated runs of one project don't collide. */
+export function deployNameFor(repoName: string): string {
+  return `${repoName}-${randomUUID().slice(0, 6)}`;
+}
+
 function stageEvent(
   stage: StageName,
   status: RunEvent["status"],
@@ -94,6 +100,8 @@ export interface PipelineContext {
   pr?: { number: number; htmlUrl: string };
   diff?: string;
   qaOutput?: QAOutput;
+  /** Per-run deploy service name; kept on the context so a resume reuses it. */
+  deployName?: string;
   deployUrl?: string;
   gateDecisions?: Record<string, "approved" | "rejected">;
 }
@@ -325,15 +333,21 @@ export const BACKBONE_STEPS: StageStep[] = [
     name: "deploy",
     abortable: ABORTABLE_STAGES.includes("deploy"),
     async run(ctx, params, deps) {
+      // A project's repoName is fixed and reused by every run, but each deploy
+      // provider creates a NEW service named after whatever it is handed — so a
+      // project's second run would collide with the first. Give every run its own
+      // service name, derived from the repo name, and keep it on the context so a
+      // stop/resume redeploys the same service rather than orphaning one.
+      ctx.deployName ??= deployNameFor(params.repoName);
       ctx.pendingInput = {
-        name: params.repoName,
+        name: ctx.deployName,
         repoUrl: ctx.repo!.htmlUrl,
         branch: BASE_BRANCH,
         workDir: params.workDir,
       };
       deps.eventBus.emit(stageEvent("deploy", "running", `Deploying to ${deps.deploy.label}`, { input: ctx.pendingInput }));
       const live = await deps.deploy.deploy({
-        name: params.repoName,
+        name: ctx.deployName,
         repoUrl: ctx.repo!.htmlUrl,
         branch: BASE_BRANCH,
         workDir: params.workDir,

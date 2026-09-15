@@ -112,6 +112,20 @@ describe("runOrchestrator", () => {
     });
   });
 
+  it("gives two runs of the same project distinct deploy service names", async () => {
+    const firstDeps = makeDeps();
+    const secondDeps = makeDeps();
+
+    await runOrchestrator(params, firstDeps);
+    await runOrchestrator(params, secondDeps);
+
+    const firstName = vi.mocked(firstDeps.deploy.deploy).mock.calls[0][0].name;
+    const secondName = vi.mocked(secondDeps.deploy.deploy).mock.calls[0][0].name;
+    expect(firstName).not.toBe(secondName);
+    expect(firstName.startsWith(`${params.repoName}-`)).toBe(true);
+    expect(secondName.startsWith(`${params.repoName}-`)).toBe(true);
+  });
+
   it("runs every stage, including the final tracing_pack stage, and deploys when QA passes", async () => {
     const deps = makeDeps();
     const events: string[] = [];
@@ -126,7 +140,9 @@ describe("runOrchestrator", () => {
     });
     expect(deps.github.mergePullRequest).toHaveBeenCalledWith("org", "idea-to-mvp-app-1", 2);
     expect(deps.deploy.deploy).toHaveBeenCalledWith({
-      name: "idea-to-mvp-app-1",
+      // Per-run service name: the project's fixed repoName plus a unique suffix,
+      // so a project's second run doesn't collide with the first one's service.
+      name: expect.stringMatching(/^idea-to-mvp-app-1-[0-9a-f]{6}$/),
       repoUrl: "https://github.com/org/idea-to-mvp-app-1",
       branch: "main",
       workDir: "/tmp/work",
