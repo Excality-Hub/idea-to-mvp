@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { migrateLegacyData } from "./migrateLegacyProjects.js";
 import { defaultWorkflowIdFor } from "./workflowStore.js";
 
@@ -47,6 +47,40 @@ describe("migrateLegacyData", () => {
 
     expect(JSON.parse(readFileSync(p.projectsFile, "utf-8"))).toEqual([]);
     expect(() => readFileSync(p.runsFile)).toThrow();
+  });
+
+  it("skips migration instead of throwing when the legacy projects file is malformed JSON", () => {
+    const p = paths(tempDir());
+    writeFileSync(p.projectsFile, "{ this is not json");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(() => migrateLegacyData(p)).not.toThrow();
+
+    expect(warn).toHaveBeenCalled();
+    expect(readFileSync(p.projectsFile, "utf-8")).toBe("{ this is not json");
+    expect(() => readFileSync(p.runsFile)).toThrow();
+    expect(() => readFileSync(p.workflowsFile)).toThrow();
+    warn.mockRestore();
+  });
+
+  it("skips migration instead of throwing when the legacy workflows file is malformed JSON", () => {
+    const p = paths(tempDir());
+    writeFileSync(
+      p.projectsFile,
+      JSON.stringify([
+        { id: "run-1", ideaText: "Build a blog", repoName: "idea-to-mvp-1", createdAt: "2026-09-01T00:00:00.000Z", events: [] },
+      ]),
+    );
+    writeFileSync(p.workflowsFile, "]]not json[[");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(() => migrateLegacyData(p)).not.toThrow();
+
+    expect(warn).toHaveBeenCalled();
+    expect(readFileSync(p.workflowsFile, "utf-8")).toBe("]]not json[[");
+    expect(() => readFileSync(p.runsFile)).toThrow();
+    expect(JSON.parse(readFileSync(p.projectsFile, "utf-8"))[0]).toMatchObject({ ideaText: "Build a blog" });
+    warn.mockRestore();
   });
 
   it("migrates legacy project records into one Legacy project, a runs file, and re-scoped workflows", () => {
