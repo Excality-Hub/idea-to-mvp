@@ -91,6 +91,27 @@ function makeDeps(overrides: Partial<OrchestratorDeps> = {}): OrchestratorDeps {
 }
 
 describe("runOrchestrator", () => {
+  describe("create_repo with an existingRepo param", () => {
+    it("skips the GitHub API call and reuses the given repo when params.existingRepo is set", async () => {
+      const deps = makeDeps();
+      const paramsWithExistingRepo: OrchestratorParams = {
+        ...params,
+        existingRepo: {
+          owner: "org",
+          htmlUrl: "https://github.com/org/idea-to-mvp-app-1",
+          cloneUrl: "https://github.com/org/idea-to-mvp-app-1.git",
+        },
+      };
+      const events: string[] = [];
+      deps.eventBus.onEvent((event) => events.push(`${event.stage}:${event.status}:${event.message}`));
+
+      await runOrchestrator(paramsWithExistingRepo, deps);
+
+      expect(deps.github.createRepoFromStarter).not.toHaveBeenCalled();
+      expect(events).toContain("create_repo:done:Reusing existing repo");
+    });
+  });
+
   it("runs every stage, including the final tracing_pack stage, and deploys when QA passes", async () => {
     const deps = makeDeps();
     const events: string[] = [];

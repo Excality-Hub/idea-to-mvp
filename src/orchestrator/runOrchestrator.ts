@@ -35,6 +35,7 @@ export interface OrchestratorParams {
   workDir: string;
   githubToken: string;
   resolvedWorkflow: ResolvedWorkflow;
+  existingRepo?: { owner: string; htmlUrl: string; cloneUrl: string };
 }
 
 export interface OrchestratorDeps {
@@ -129,6 +130,14 @@ export const BACKBONE_STEPS: StageStep[] = [
     name: "create_repo",
     abortable: ABORTABLE_STAGES.includes("create_repo"),
     async run(ctx, params, deps) {
+      if (params.existingRepo) {
+        deps.eventBus.emit(
+          stageEvent("create_repo", "done", "Reusing existing repo", { output: params.existingRepo }),
+        );
+        ctx.tracingEntries.push({ stage: "create_repo", status: "done", output: params.existingRepo });
+        ctx.repo = { ...params.existingRepo, repo: params.repoName };
+        return;
+      }
       const starterFiles = deps.readStarterFiles(params.starterDir);
       ctx.pendingInput = {
         owner: params.owner,
