@@ -38,7 +38,7 @@ describe("AgentsView", () => {
     await waitFor(() => expect(screen.queryByText("Loading…")).not.toBeInTheDocument());
 
     await user.type(screen.getByLabelText("Name"), "Security Reviewer");
-    await user.type(screen.getByLabelText("Instructions"), "Look for auth bypass issues.");
+    await user.type(screen.getByLabelText("Instructions / system prompt"), "Look for auth bypass issues.");
     await user.click(screen.getByLabelText(/repo read access/i));
     await user.click(screen.getByRole("button", { name: "Create agent" }));
 
@@ -69,7 +69,7 @@ describe("AgentsView", () => {
     await waitFor(() => expect(screen.queryByText("Loading…")).not.toBeInTheDocument());
 
     await user.type(screen.getByLabelText("Name"), "Security Reviewer");
-    await user.type(screen.getByLabelText("Instructions"), "Look for auth bypass issues.");
+    await user.type(screen.getByLabelText("Instructions / system prompt"), "Look for auth bypass issues.");
     await user.click(within(screen.getByTestId("agent-inputs")).getByLabelText("Pull request"));
     await user.click(within(screen.getByTestId("agent-outputs")).getByLabelText("QA findings"));
     await user.click(screen.getByRole("button", { name: "Create agent" }));
@@ -95,7 +95,7 @@ describe("AgentsView", () => {
     render(<AgentsView />);
     await waitFor(() => expect(screen.queryByText("Loading…")).not.toBeInTheDocument());
 
-    await user.type(screen.getByLabelText("Instructions"), "Add a unit test for the parseDate function.");
+    await user.type(screen.getByLabelText("Instructions / system prompt"), "Add a unit test for the parseDate function.");
     await user.click(screen.getByRole("button", { name: "Analyze instructions" }));
 
     expect(screen.getByText(/complexity: low/i)).toBeInTheDocument();
@@ -111,7 +111,7 @@ describe("AgentsView", () => {
     await waitFor(() => expect(screen.queryByText("Loading…")).not.toBeInTheDocument());
 
     await user.type(
-      screen.getByLabelText("Instructions"),
+      screen.getByLabelText("Instructions / system prompt"),
       "If a file has no tests, write tests for it. Otherwise, refactor it for clarity.",
     );
     await user.click(screen.getByLabelText(/repo read access/i));

@@ -1,10 +1,30 @@
 import { useState } from "react";
+import { Bot, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useAgents } from "@/hooks/useAgents";
 import { analyzeInstructions, type InstructionAnalysis } from "@/lib/instructionAnalysis";
 import { DATA_KINDS, DATA_KIND_LABELS, type AgentDefinition, type DataKind } from "@/types";
+
+interface PillCheckboxProps {
+  id: string;
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+}
+
+function PillCheckbox({ id, checked, onChange, label }: PillCheckboxProps) {
+  return (
+    <label
+      htmlFor={id}
+      className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-background/30 p-2.5 text-sm text-foreground"
+    >
+      <Checkbox id={id} checked={checked} onCheckedChange={onChange} />
+      {label}
+    </label>
+  );
+}
 
 export function AgentsView() {
   const { agents, loading, error, refetch } = useAgents();
@@ -60,38 +80,36 @@ export function AgentsView() {
   }
 
   return (
-    <div className="flex h-full w-full flex-col gap-4 overflow-y-auto p-6">
+    <div className="mx-auto flex h-full w-full max-w-[1500px] flex-col gap-6 overflow-y-auto p-4 lg:p-7">
       <div>
         <h1 className="font-heading text-xl font-semibold text-foreground">Agents</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           Read-only pipeline steps you can insert into a workflow after Analyst, Architect, or QA.
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">New agent</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
+      <section className="glass-panel grid gap-6 p-5 xl:grid-cols-[0.8fr_1.2fr]">
+        <div className="space-y-4">
+          <div>
             <label htmlFor="agent-name" className="text-sm font-medium text-foreground">
               Name
             </label>
             <input
               id="agent-name"
-              className="rounded-lg border border-border bg-background p-2 text-sm"
+              placeholder="Security officer"
+              className="mt-2 h-9 w-full rounded-md border border-input bg-background/40 px-3 py-1 text-sm text-foreground placeholder:text-muted-foreground"
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
           </div>
-          <div className="flex flex-col gap-1">
+          <div>
             <label htmlFor="agent-instructions" className="text-sm font-medium text-foreground">
-              Instructions
+              Instructions / system prompt
             </label>
             <textarea
               id="agent-instructions"
-              className="rounded-lg border border-border bg-background p-2 text-sm"
-              style={{ minHeight: 80 }}
+              placeholder="Describe what this agent should inspect, decide, and return..."
+              className="mt-2 min-h-40 w-full rounded-md border border-input bg-background/40 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
               value={instructions}
               onChange={(event) => {
                 setInstructions(event.target.value);
@@ -99,57 +117,53 @@ export function AgentsView() {
               }}
             />
           </div>
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <input
-              type="checkbox"
+          <label htmlFor="agent-repo-access" className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+            <Checkbox
+              id="agent-repo-access"
               checked={repoAccess}
-              onChange={(event) => {
-                setRepoAccess(event.target.checked);
+              onCheckedChange={() => {
+                setRepoAccess((prev) => !prev);
                 setAnalysis(undefined);
               }}
             />
             Give this agent repo read access
           </label>
-          <div data-testid="agent-inputs" className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-foreground">Needs</span>
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {DATA_KINDS.map((kind) => (
-                <label key={kind} className="flex items-center gap-1.5 text-sm text-foreground">
-                  <input
-                    type="checkbox"
+        </div>
+
+        <div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div data-testid="agent-inputs">
+              <p className="mb-3 font-mono text-[10px] uppercase text-muted-foreground">Needs</p>
+              <div className="grid gap-2">
+                {DATA_KINDS.map((kind) => (
+                  <PillCheckbox
+                    key={kind}
+                    id={`agent-input-${kind}`}
                     checked={inputs.includes(kind)}
                     onChange={() => setInputs((prev) => toggle(prev, kind))}
+                    label={DATA_KIND_LABELS[kind]}
                   />
-                  {DATA_KIND_LABELS[kind]}
-                </label>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-          <div data-testid="agent-outputs" className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-foreground">Produces</span>
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {DATA_KINDS.map((kind) => (
-                <label key={kind} className="flex items-center gap-1.5 text-sm text-foreground">
-                  <input
-                    type="checkbox"
+            <div data-testid="agent-outputs">
+              <p className="mb-3 font-mono text-[10px] uppercase text-muted-foreground">Produces</p>
+              <div className="grid gap-2">
+                {DATA_KINDS.map((kind) => (
+                  <PillCheckbox
+                    key={kind}
+                    id={`agent-output-${kind}`}
                     checked={outputs.includes(kind)}
                     onChange={() => setOutputs((prev) => toggle(prev, kind))}
+                    label={DATA_KIND_LABELS[kind]}
                   />
-                  {DATA_KIND_LABELS[kind]}
-                </label>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => setAnalysis(analyzeInstructions(instructions, repoAccess))}
-            disabled={!instructions.trim()}
-            className="w-fit"
-          >
-            Analyze instructions
-          </Button>
+
           {analysis && (
-            <div className="flex flex-col gap-1 rounded-lg border border-border bg-muted/50 p-3 text-sm">
+            <div className="mt-4 flex flex-col gap-1 rounded-xl border border-border bg-muted/50 p-4 text-sm">
               <p>~{analysis.tokenEstimate} tokens · {analysis.wordCount} words</p>
               <p>Complexity: {analysis.complexityLabel}</p>
               <p>Clarity: {analysis.clarityScore}/100</p>
@@ -165,48 +179,65 @@ export function AgentsView() {
               )}
             </div>
           )}
-          {formError && <p className="text-sm text-destructive">{formError}</p>}
-          <Button
-            onClick={handleCreate}
-            disabled={!name.trim() || !instructions.trim() || submitting}
-            className="w-fit"
-          >
-            {submitting ? "Creating..." : "Create agent"}
-          </Button>
-        </CardContent>
-      </Card>
+          {formError && <p className="mt-4 text-sm text-destructive">{formError}</p>}
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : error ? (
-        <p className="text-sm text-destructive">{error}</p>
-      ) : agents.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No agents yet.</p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {agents.map((agent) => (
-            <li
-              key={agent.id}
-              data-testid={`agent-row-${agent.id}`}
-              className="flex flex-col gap-1 rounded-xl border border-border bg-card p-3"
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Button
+              variant="outline"
+              className="h-9 gap-2 px-4"
+              onClick={() => setAnalysis(analyzeInstructions(instructions, repoAccess))}
+              disabled={!instructions.trim()}
             >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-foreground">{agent.name}</span>
+              <Sparkles className="size-4" />
+              Analyze instructions
+            </Button>
+            <Button className="h-9 gap-2 px-4" onClick={handleCreate} disabled={!name.trim() || !instructions.trim() || submitting}>
+              <Bot className="size-4" />
+              {submitting ? "Creating..." : "Create agent"}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-heading font-semibold text-foreground">Existing agents</h2>
+          <span className="font-mono text-[10px] text-muted-foreground">{agents.length} CUSTOM</span>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : agents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No agents yet.</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {agents.map((agent) => (
+              <article key={agent.id} data-testid={`agent-row-${agent.id}`} className="glass-panel p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Bot className="size-4" />
+                  </span>
                   {agent.repoAccess && <Badge variant="secondary">reads repo</Badge>}
                 </div>
-                <Button variant="outline" size="sm" onClick={() => handleDelete(agent)}>
+                <h4 className="mt-4 font-heading font-semibold text-foreground">{agent.name}</h4>
+                <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted-foreground">{agent.instructions}</p>
+                {rowError?.id === agent.id && <p className="mt-2 text-sm text-destructive">{rowError.message}</p>}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDelete(agent)}
+                  className="mt-4 text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="size-3.5" />
                   Delete
                 </Button>
-              </div>
-              <p className="truncate text-sm text-muted-foreground">{agent.instructions}</p>
-              {rowError?.id === agent.id && (
-                <p className="text-sm text-destructive">{rowError.message}</p>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
