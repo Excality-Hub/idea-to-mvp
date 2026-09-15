@@ -227,6 +227,110 @@ describe("createAgentHandlers", () => {
 
     expect(res.json).toHaveBeenCalledWith([agent]);
   });
+
+  it("creates an agent, defaulting inputs and outputs to empty arrays", () => {
+    const agentStore = makeAgentStore();
+    const { create } = createAgentHandlers(agentStore, makeWorkflowStore([]));
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "Security Reviewer", instructions: "Look for auth bypass issues.", repoAccess: true } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(agentStore.create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Security Reviewer", repoAccess: true, inputs: [], outputs: [] }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("creates an agent with its declared inputs and outputs", () => {
+    const agentStore = makeAgentStore();
+    const { create } = createAgentHandlers(agentStore, makeWorkflowStore([]));
+    const res = makeFakeRes();
+
+    create(
+      {
+        body: {
+          name: "Security Reviewer",
+          instructions: "Look for auth bypass issues.",
+          repoAccess: true,
+          inputs: ["pull_request"],
+          outputs: ["qa_findings"],
+        },
+      } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(agentStore.create).toHaveBeenCalledWith(
+      expect.objectContaining({ inputs: ["pull_request"], outputs: ["qa_findings"] }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("400s creating an agent with an unknown data kind", () => {
+    const agentStore = makeAgentStore();
+    const { create } = createAgentHandlers(agentStore, makeWorkflowStore([]));
+    const res = makeFakeRes();
+
+    create(
+      { body: { name: "A", instructions: "x", repoAccess: false, inputs: ["not_a_kind"] } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(agentStore.create).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("400s creating an agent from an invalid body", () => {
+    const agentStore = makeAgentStore();
+    const { create } = createAgentHandlers(agentStore, makeWorkflowStore([]));
+    const res = makeFakeRes();
+
+    create({ body: { name: "" } } as never, res as never, (() => {}) as never);
+
+    expect(agentStore.create).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("deletes an agent no workflow references", () => {
+    const agent: AgentDefinition = { id: "a1", name: "A", instructions: "x", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" };
+    const agentStore = makeAgentStore([agent]);
+    const workflow: WorkflowDefinition = { id: "w1", projectId: "p1", name: "Custom", slots: { qa: ["other-agent"] }, createdAt: "2026-01-01T00:00:00.000Z" };
+    const { remove } = createAgentHandlers(agentStore, makeWorkflowStore([workflow]));
+    const res = makeFakeRes();
+
+    remove({ params: { id: "a1" } } as never, res as never, (() => {}) as never);
+
+    expect(agentStore.delete).toHaveBeenCalledWith("a1");
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it("409s deleting an agent still referenced by a workflow in ANY project", () => {
+    // Agents are global but workflows are per-project, so this referential-integrity
+    // check has to scan every project's workflows, not just one project's.
+    const agent: AgentDefinition = { id: "a1", name: "A", instructions: "x", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" };
+    const agentStore = makeAgentStore([agent]);
+    const otherProjectsWorkflow: WorkflowDefinition = {
+      id: "w-other",
+      projectId: "p2",
+      name: "With review",
+      slots: { qa: ["a1"] },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const ownProjectsWorkflow: WorkflowDefinition = { id: "p1-default", projectId: "p1", name: "Default", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" };
+    const { remove } = createAgentHandlers(agentStore, makeWorkflowStore([ownProjectsWorkflow, otherProjectsWorkflow]));
+    const res = makeFakeRes();
+
+    remove({ params: { id: "a1" } } as never, res as never, (() => {}) as never);
+
+    expect(agentStore.delete).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ error: "Agent is used by a workflow" });
+  });
 });
 
 describe("createWorkflowHandlers", () => {
@@ -273,6 +377,93 @@ describe("createWorkflowHandlers", () => {
 
     expect(workflowStore.create).toHaveBeenCalledWith(expect.objectContaining({ slots: { analyst: ["gate:g1"] } }));
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("400s when the same agent appears in more than one slot", () => {
+    const agent: AgentDefinition = { id: "a1", name: "A", instructions: "x", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" };
+    const workflowStore = makeWorkflowStore([defaultWorkflow]);
+    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore([agent]));
+    const res = makeFakeRes();
+
+    create(
+      { params: { projectId: "p1" }, body: { name: "Twice", slots: { analyst: ["a1"], qa: ["a1"] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.create).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "An agent may appear at most once across a workflow's slots" });
+  });
+
+  it("400s when a slot key isn't a backbone stage", () => {
+    const workflowStore = makeWorkflowStore([defaultWorkflow]);
+    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    create(
+      { params: { projectId: "p1" }, body: { name: "Bogus", slots: { not_a_stage: [] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.create).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "Unknown backbone stage: not_a_stage" });
+  });
+
+  it("400s when a slot key is tracing_pack, which is not a splice point", () => {
+    // BACKBONE_STAGES is 10, not 11: tracing_pack runs outside the stage loop on
+    // every exit path, so anything spliced after it would never execute.
+    const agent: AgentDefinition = { id: "a1", name: "A", instructions: "x", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" };
+    const workflowStore = makeWorkflowStore([defaultWorkflow]);
+    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore([agent]));
+    const res = makeFakeRes();
+
+    create(
+      { params: { projectId: "p1" }, body: { name: "After tracing", slots: { tracing_pack: ["a1"] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.create).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "Unknown backbone stage: tracing_pack" });
+  });
+
+  it("creates a workflow with an agent spliced after create_repo", () => {
+    const agent: AgentDefinition = { id: "a1", name: "A", instructions: "x", repoAccess: true, createdAt: "2026-01-01T00:00:00.000Z" };
+    const workflowStore = makeWorkflowStore([defaultWorkflow]);
+    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore([agent]));
+    const res = makeFakeRes();
+
+    create(
+      { params: { projectId: "p1" }, body: { name: "After repo", slots: { create_repo: ["a1"] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.create).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "p1", slots: { create_repo: ["a1"] } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("400s updating a workflow with an unknown agent id", () => {
+    const custom: WorkflowDefinition = { id: "w1", projectId: "p1", name: "Custom", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" };
+    const workflowStore = makeWorkflowStore([defaultWorkflow, custom]);
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    update(
+      { params: { projectId: "p1", workflowId: "w1" }, body: { name: "Custom", slots: { qa: ["missing"] } } } as never,
+      res as never,
+      (() => {}) as never,
+    );
+
+    expect(workflowStore.update).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "Unknown agent id: missing" });
   });
 
   it("404s updating an unknown workflow id", () => {
