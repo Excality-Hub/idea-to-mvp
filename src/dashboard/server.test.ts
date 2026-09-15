@@ -2,15 +2,23 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { RunEventBus } from "../orchestrator/events.js";
 import type { RunEvent } from "../orchestrator/types.js";
-import { createEventsHandler, createRunHandlers } from "./server.js";
 import type { AgentDefinition } from "../agents/types.js";
 import type { AgentStore } from "../agents/agentStore.js";
 import type { WorkflowDefinition } from "../orchestrator/types.js";
 import type { WorkflowStore } from "../orchestrator/workflowStore.js";
-import { createAgentHandlers, createWorkflowHandlers } from "./server.js";
-import type { ProjectRecord } from "../orchestrator/projectStore.js";
-import type { ProjectStore } from "../orchestrator/projectStore.js";
-import { createProjectHandlers } from "./server.js";
+import type { Project, ProjectStore } from "../orchestrator/projectStore.js";
+import type { Run, RunStore } from "../orchestrator/runStore.js";
+import type { RunController } from "../orchestrator/runController.js";
+import type { RunControllerRegistry } from "../orchestrator/runControllerRegistry.js";
+import {
+  createAgentHandlers,
+  createEventsHandler,
+  createProjectHandlers,
+  createRequireProjectMiddleware,
+  createRunHandlers,
+  createRunsHandlers,
+  createWorkflowHandlers,
+} from "./server.js";
 
 const sampleEvent: RunEvent = {
   stage: "analyst",
@@ -31,636 +39,436 @@ function makeFakeRes() {
   return res;
 }
 
+function makeAgentStore(agents: AgentDefinition[] = []): AgentStore {
+  return {
+    list: () => agents,
+    get: (id) => agents.find((a) => a.id === id),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  };
+}
+
+function makeWorkflowStore(workflows: WorkflowDefinition[]): WorkflowStore {
+  return {
+    list: () => workflows,
+    get: (id) => workflows.find((w) => w.id === id),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    listByProject: (projectId) => workflows.filter((w) => w.projectId === projectId),
+  };
+}
+
+function makeProjectStore(projects: Project[] = []): ProjectStore {
+  const records = new Map(projects.map((p) => [p.id, p]));
+  return {
+    list: () => Array.from(records.values()),
+    get: (id) => records.get(id),
+    create: vi.fn((item: Project) => records.set(item.id, item)),
+    update: vi.fn(),
+    delete: vi.fn(),
+  };
+}
+
+function makeRunStore(runs: Run[] = []): RunStore {
+  return {
+    list: () => runs,
+    get: (id) => runs.find((r) => r.id === id),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    appendEvent: vi.fn(),
+    listByProject: (projectId) => runs.filter((r) => r.projectId === projectId),
+  };
+}
+
+function makeRegistry(controller: Partial<RunController>): Pick<RunControllerRegistry, "get"> {
+  return { get: vi.fn().mockReturnValue(controller) };
+}
+
 describe("createEventsHandler", () => {
-  it("streams the session's bus events to the response as SSE data lines", () => {
+  it("streams the resolved project's bus events to the response as SSE data lines", () => {
     const bus = new RunEventBus();
-    const session = { eventBus: bus, onBusReplaced: () => () => {} };
-    const handler = createEventsHandler(session);
+    const controller = { eventBus: bus, onBusReplaced: () => () => {} };
+    const registry = makeRegistry(controller);
+    const handler = createEventsHandler(registry);
     const req = new EventEmitter();
     const res = makeFakeRes();
 
-    handler(req as never, res as never, (() => {}) as never);
+    handler({ params: { projectId: "p1" }, on: req.on.bind(req) } as never, res as never, (() => {}) as never);
     bus.emit(sampleEvent);
 
     expect(res.setHeader).toHaveBeenCalledWith("Content-Type", "text/event-stream");
     expect(res.write).toHaveBeenCalledWith(`data: ${JSON.stringify(sampleEvent)}\n\n`);
+    expect(registry.get).toHaveBeenCalledWith("p1");
   });
 
   it("stops writing once the request closes", () => {
     const bus = new RunEventBus();
-    const session = { eventBus: bus, onBusReplaced: () => () => {} };
-    const handler = createEventsHandler(session);
+    const controller = { eventBus: bus, onBusReplaced: () => () => {} };
+    const registry = makeRegistry(controller);
+    const handler = createEventsHandler(registry);
     const req = new EventEmitter();
     const res = makeFakeRes();
 
-    handler(req as never, res as never, (() => {}) as never);
+    handler({ params: { projectId: "p1" }, on: req.on.bind(req) } as never, res as never, (() => {}) as never);
     req.emit("close");
     bus.emit(sampleEvent);
 
     expect(res.write).not.toHaveBeenCalled();
   });
 
-  it("ends open connections when the session's event bus is replaced", () => {
-    let busReplacedListener: (() => void) | undefined;
-    const session = {
-      eventBus: new RunEventBus(),
+  it("ends the response when the controller's bus is replaced", () => {
+    const bus = new RunEventBus();
+    let replacedListener: (() => void) | undefined;
+    const controller = {
+      eventBus: bus,
       onBusReplaced: (listener: () => void) => {
-        busReplacedListener = listener;
+        replacedListener = listener;
         return () => {};
       },
     };
-    const handler = createEventsHandler(session);
+    const registry = makeRegistry(controller);
+    const handler = createEventsHandler(registry);
     const req = new EventEmitter();
     const res = makeFakeRes();
 
-    handler(req as never, res as never, (() => {}) as never);
-    busReplacedListener?.();
+    handler({ params: { projectId: "p1" }, on: req.on.bind(req) } as never, res as never, (() => {}) as never);
+    replacedListener?.();
 
     expect(res.end).toHaveBeenCalled();
   });
 });
 
 describe("createRunHandlers", () => {
-  it("starts a run with the request body's ideaText and returns 204", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
-    const { start } = createRunHandlers(controller);
+  it("starts a run on the resolved project's controller", () => {
+    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn(), getPlan: vi.fn() };
+    const registry = makeRegistry(controller);
+    const { start } = createRunHandlers(registry);
     const res = makeFakeRes();
 
-    start({ body: { ideaText: "Build a todo app" } } as never, res as never, (() => {}) as never);
+    start({ params: { projectId: "p1" }, body: { ideaText: "Build a todo app" } } as never, res as never, (() => {}) as never);
 
+    expect(registry.get).toHaveBeenCalledWith("p1");
     expect(controller.start).toHaveBeenCalledWith("Build a todo app");
     expect(res.status).toHaveBeenCalledWith(204);
   });
 
-  it("returns 400 when ideaText is missing", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
-    const { start } = createRunHandlers(controller);
+  it("starts a run with the given workflowId when provided", () => {
+    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn(), getPlan: vi.fn() };
+    const registry = makeRegistry(controller);
+    const { start } = createRunHandlers(registry);
     const res = makeFakeRes();
 
-    start({ body: {} } as never, res as never, (() => {}) as never);
+    start(
+      { params: { projectId: "p1" }, body: { ideaText: "Build a todo app", workflowId: "with-review" } } as never,
+      res as never,
+      (() => {}) as never,
+    );
 
-    expect(controller.start).not.toHaveBeenCalled();
+    expect(controller.start).toHaveBeenCalledWith("Build a todo app", "with-review");
+  });
+
+  it("400s when ideaText is missing", () => {
+    const registry = makeRegistry({ start: vi.fn() });
+    const { start } = createRunHandlers(registry);
+    const res = makeFakeRes();
+
+    start({ params: { projectId: "p1" }, body: {} } as never, res as never, (() => {}) as never);
+
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
-  it("returns 409 when starting while a run is already active", () => {
-    const controller = {
-      start: vi.fn(() => {
-        throw new Error("A run is already active");
-      }),
-      stop: vi.fn(),
-      resume: vi.fn(),
-      decideGate: vi.fn(),
-    };
-    const { start } = createRunHandlers(controller);
+  it("409s when the controller throws (e.g. a run is already active)", () => {
+    const controller = { start: vi.fn(() => { throw new Error("A run is already active"); }) };
+    const registry = makeRegistry(controller);
+    const { start } = createRunHandlers(registry);
     const res = makeFakeRes();
 
-    start({ body: { ideaText: "x" } } as never, res as never, (() => {}) as never);
+    start({ params: { projectId: "p1" }, body: { ideaText: "x" } } as never, res as never, (() => {}) as never);
 
     expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ error: "A run is already active" });
   });
 
-  it("stops the current run and returns 204", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
-    const { stop } = createRunHandlers(controller);
+  it("resolves the gate id and decision through the registry's controller", () => {
+    const controller = { decideGate: vi.fn() };
+    const registry = makeRegistry(controller);
+    const { approveGate, rejectGate } = createRunHandlers(registry);
     const res = makeFakeRes();
 
-    stop({} as never, res as never, (() => {}) as never);
-
-    expect(controller.stop).toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(204);
-  });
-
-  it("returns 409 when stop() finds nothing abortable running", () => {
-    const controller = {
-      start: vi.fn(),
-      stop: vi.fn(() => {
-        throw new Error("No abortable stage is currently running");
-      }),
-      resume: vi.fn(),
-      decideGate: vi.fn(),
-    };
-    const { stop } = createRunHandlers(controller);
-    const res = makeFakeRes();
-
-    stop({} as never, res as never, (() => {}) as never);
-
-    expect(res.status).toHaveBeenCalledWith(409);
-  });
-
-  it("resumes a stopped run and returns 204", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
-    const { resume } = createRunHandlers(controller);
-    const res = makeFakeRes();
-
-    resume({} as never, res as never, (() => {}) as never);
-
-    expect(controller.resume).toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(204);
-  });
-});
-
-describe("createRunHandlers gate routes", () => {
-  it("approves a gate and returns 204", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
-    const { approveGate } = createRunHandlers(controller);
-    const res = makeFakeRes();
-
-    approveGate({ params: { id: "g1" } } as never, res as never, (() => {}) as never);
+    approveGate({ params: { projectId: "p1", gateId: "g1" } } as never, res as never, (() => {}) as never);
+    rejectGate({ params: { projectId: "p1", gateId: "g2" } } as never, res as never, (() => {}) as never);
 
     expect(controller.decideGate).toHaveBeenCalledWith("g1", "approved");
-    expect(res.status).toHaveBeenCalledWith(204);
+    expect(controller.decideGate).toHaveBeenCalledWith("g2", "rejected");
   });
 
-  it("rejects a gate and returns 204", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
-    const { rejectGate } = createRunHandlers(controller);
+  it("returns the resolved project's plan", () => {
+    const controller = { getPlan: vi.fn().mockReturnValue(["create_repo", "analyst"]) };
+    const registry = makeRegistry(controller);
+    const { plan } = createRunHandlers(registry);
     const res = makeFakeRes();
 
-    rejectGate({ params: { id: "g1" } } as never, res as never, (() => {}) as never);
+    plan({ params: { projectId: "p1" } } as never, res as never, (() => {}) as never);
 
-    expect(controller.decideGate).toHaveBeenCalledWith("g1", "rejected");
-    expect(res.status).toHaveBeenCalledWith(204);
-  });
-
-  it("returns 409 when decideGate throws", () => {
-    const controller = {
-      start: vi.fn(),
-      stop: vi.fn(),
-      resume: vi.fn(),
-      decideGate: vi.fn(() => {
-        throw new Error("No stopped run to decide");
-      }),
-    };
-    const { approveGate } = createRunHandlers(controller);
-    const res = makeFakeRes();
-
-    approveGate({ params: { id: "g1" } } as never, res as never, (() => {}) as never);
-
-    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith(["create_repo", "analyst"]);
   });
 });
 
-function makeAgentStore(agents: AgentDefinition[] = []): AgentStore {
-  return {
-    list: vi.fn(() => agents),
-    get: (id) => agents.find((a) => a.id === id),
-    create: vi.fn((item) => agents.push(item)),
-    update: vi.fn(),
-    delete: vi.fn(),
-  };
-}
-
-function makeWorkflowStore(workflows: WorkflowDefinition[] = []): WorkflowStore {
-  return {
-    list: vi.fn(() => workflows),
-    get: (id) => workflows.find((w) => w.id === id),
-    create: vi.fn((item) => workflows.push(item)),
-    update: vi.fn(),
-    delete: vi.fn(),
-  };
-}
-
-function makeProjectStore(projects: ProjectRecord[] = []): ProjectStore {
-  return {
-    list: () => projects,
-    get: (id) => projects.find((p) => p.id === id),
-    create: vi.fn(),
-    update: vi.fn(),
-    delete: vi.fn(),
-    appendEvent: vi.fn(),
-  };
-}
-
 describe("createAgentHandlers", () => {
-  it("lists agents", () => {
-    const agentStore = makeAgentStore([
-      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
-    ]);
-    const { list } = createAgentHandlers(agentStore, makeWorkflowStore());
+  it("lists all agents, unscoped by project", () => {
+    const agent: AgentDefinition = { id: "a1", name: "A", instructions: "x", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" };
+    const { list } = createAgentHandlers(makeAgentStore([agent]), makeWorkflowStore([]));
     const res = makeFakeRes();
 
     list({} as never, res as never, (() => {}) as never);
 
-    expect(res.json).toHaveBeenCalledWith(agentStore.list());
+    expect(res.json).toHaveBeenCalledWith([agent]);
   });
+});
 
-  it("creates an agent from a valid body and returns 201, defaulting inputs/outputs to empty arrays", () => {
-    const agentStore = makeAgentStore();
-    const { create } = createAgentHandlers(agentStore, makeWorkflowStore());
+describe("createWorkflowHandlers", () => {
+  const defaultWorkflow: WorkflowDefinition = { id: "p1-default", projectId: "p1", name: "Default", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" };
+
+  it("lists only the given project's workflows", () => {
+    const other: WorkflowDefinition = { id: "p2-default", projectId: "p2", name: "Default", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" };
+    const { list } = createWorkflowHandlers(makeWorkflowStore([defaultWorkflow, other]), makeAgentStore());
     const res = makeFakeRes();
 
-    create(
-      { body: { name: "Security Reviewer", instructions: "check for bugs", repoAccess: true } } as never,
-      res as never,
-      (() => {}) as never,
-    );
+    list({ params: { projectId: "p1" } } as never, res as never, (() => {}) as never);
 
-    expect(agentStore.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "Security Reviewer",
-        instructions: "check for bugs",
-        repoAccess: true,
-        inputs: [],
-        outputs: [],
-      }),
-    );
+    expect(res.json).toHaveBeenCalledWith([defaultWorkflow]);
+  });
+
+  it("creates a workflow owned by the project in the URL", () => {
+    const workflowStore = makeWorkflowStore([defaultWorkflow]);
+    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    create({ params: { projectId: "p1" }, body: { name: "With review", slots: {} } } as never, res as never, (() => {}) as never);
+
+    expect(workflowStore.create).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p1", name: "With review" }));
     expect(res.status).toHaveBeenCalledWith(201);
   });
 
-  it("creates an agent with declared inputs and outputs", () => {
-    const agentStore = makeAgentStore();
-    const { create } = createAgentHandlers(agentStore, makeWorkflowStore());
+  it("400s when a workflow references an unknown agent id", () => {
+    const workflowStore = makeWorkflowStore([defaultWorkflow]);
+    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore());
     const res = makeFakeRes();
 
-    create(
-      {
-        body: {
-          name: "PR Reviewer",
-          instructions: "review the diff",
-          repoAccess: false,
-          inputs: ["pull_request"],
-          outputs: ["qa_findings"],
-        },
-      } as never,
-      res as never,
-      (() => {}) as never,
-    );
+    create({ params: { projectId: "p1" }, body: { name: "Broken", slots: { analyst: ["missing"] } } } as never, res as never, (() => {}) as never);
 
-    expect(agentStore.create).toHaveBeenCalledWith(
-      expect.objectContaining({ inputs: ["pull_request"], outputs: ["qa_findings"] }),
-    );
+    expect(workflowStore.create).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("creates a workflow whose slots contain a gate entry, without requiring it to resolve to an agent", () => {
+    const workflowStore = makeWorkflowStore([defaultWorkflow]);
+    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    create({ params: { projectId: "p1" }, body: { name: "With a gate", slots: { analyst: ["gate:g1"] } } } as never, res as never, (() => {}) as never);
+
+    expect(workflowStore.create).toHaveBeenCalledWith(expect.objectContaining({ slots: { analyst: ["gate:g1"] } }));
     expect(res.status).toHaveBeenCalledWith(201);
   });
 
-  it("returns 400 when inputs contains an unknown data kind", () => {
-    const { create } = createAgentHandlers(makeAgentStore(), makeWorkflowStore());
+  it("404s updating an unknown workflow id", () => {
+    const workflowStore = makeWorkflowStore([defaultWorkflow]);
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
     const res = makeFakeRes();
 
-    create(
-      { body: { name: "X", instructions: "y", repoAccess: false, inputs: ["not_a_real_kind"] } } as never,
-      res as never,
-      (() => {}) as never,
-    );
+    update({ params: { projectId: "p1", workflowId: "nope" }, body: { name: "New", slots: {} } } as never, res as never, (() => {}) as never);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it("404s updating a workflow that belongs to a different project", () => {
+    const other: WorkflowDefinition = { id: "w-other", projectId: "p2", name: "Other", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" };
+    const workflowStore = makeWorkflowStore([defaultWorkflow, other]);
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    update({ params: { projectId: "p1", workflowId: "w-other" }, body: { name: "New", slots: {} } } as never, res as never, (() => {}) as never);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it("400s updating the project's default workflow", () => {
+    const workflowStore = makeWorkflowStore([defaultWorkflow]);
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    update({ params: { projectId: "p1", workflowId: "p1-default" }, body: { name: "New", slots: {} } } as never, res as never, (() => {}) as never);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "Cannot edit the default workflow" });
+  });
+
+  it("updates a non-default workflow belonging to the project", () => {
+    const custom: WorkflowDefinition = { id: "w1", projectId: "p1", name: "Custom", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" };
+    const workflowStore = makeWorkflowStore([defaultWorkflow, custom]);
+    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    update({ params: { projectId: "p1", workflowId: "w1" }, body: { name: "Renamed", slots: {} } } as never, res as never, (() => {}) as never);
+
+    expect(workflowStore.update).toHaveBeenCalledWith("w1", expect.objectContaining({ name: "Renamed" }));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("400s deleting the project's default workflow", () => {
+    const workflowStore = makeWorkflowStore([defaultWorkflow]);
+    const { remove } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    remove({ params: { projectId: "p1", workflowId: "p1-default" } } as never, res as never, (() => {}) as never);
 
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
-  it("returns 400 when the create body is invalid", () => {
-    const { create } = createAgentHandlers(makeAgentStore(), makeWorkflowStore());
+  it("deletes a non-default workflow belonging to the project", () => {
+    const custom: WorkflowDefinition = { id: "w1", projectId: "p1", name: "Custom", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" };
+    const workflowStore = makeWorkflowStore([defaultWorkflow, custom]);
+    const { remove } = createWorkflowHandlers(workflowStore, makeAgentStore());
+    const res = makeFakeRes();
+
+    remove({ params: { projectId: "p1", workflowId: "w1" } } as never, res as never, (() => {}) as never);
+
+    expect(workflowStore.delete).toHaveBeenCalledWith("w1");
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+});
+
+describe("createRequireProjectMiddleware", () => {
+  it("404s when the project doesn't exist", () => {
+    const middleware = createRequireProjectMiddleware(makeProjectStore([]));
+    const res = makeFakeRes();
+    const next = vi.fn();
+
+    middleware({ params: { projectId: "nope" } } as never, res as never, next as never);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("calls next() when the project exists", () => {
+    const project: Project = { id: "p1", name: "P1", repoName: "p1-repo", createdAt: "2026-01-01T00:00:00.000Z" };
+    const middleware = createRequireProjectMiddleware(makeProjectStore([project]));
+    const res = makeFakeRes();
+    const next = vi.fn();
+
+    middleware({ params: { projectId: "p1" } } as never, res as never, next as never);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+});
+
+describe("createProjectHandlers", () => {
+  const older: Project = { id: "p-older", name: "Blog", repoName: "blog-1", createdAt: "2026-09-13T00:00:00.000Z" };
+  const newer: Project = { id: "p-newer", name: "Todo app", repoName: "todo-app-1", createdAt: "2026-09-14T00:00:00.000Z" };
+
+  it("lists projects newest-first", () => {
+    const { list } = createProjectHandlers(makeProjectStore([older, newer]), { create: vi.fn() });
+    const res = makeFakeRes();
+
+    list({} as never, res as never, (() => {}) as never);
+
+    expect(res.json).toHaveBeenCalledWith([newer, older]);
+  });
+
+  it("gets a single project", () => {
+    const { get } = createProjectHandlers(makeProjectStore([older]), { create: vi.fn() });
+    const res = makeFakeRes();
+
+    get({ params: { projectId: "p-older" } } as never, res as never, (() => {}) as never);
+
+    expect(res.json).toHaveBeenCalledWith(older);
+  });
+
+  it("404s for an unknown project id", () => {
+    const { get } = createProjectHandlers(makeProjectStore([]), { create: vi.fn() });
+    const res = makeFakeRes();
+
+    get({ params: { projectId: "nope" } } as never, res as never, (() => {}) as never);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it("creates a project with a generated repoName and seeds its default workflow", () => {
+    const projectStore = makeProjectStore([]);
+    const workflowStore = { create: vi.fn() };
+    const { create } = createProjectHandlers(projectStore, workflowStore);
+    const res = makeFakeRes();
+
+    create({ body: { name: "My Todo App" } } as never, res as never, (() => {}) as never);
+
+    expect(projectStore.create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "My Todo App", repoName: expect.stringMatching(/^my-todo-app-[0-9a-f]{8}$/) }),
+    );
+    expect(workflowStore.create).toHaveBeenCalledWith(expect.objectContaining({ name: "Default" }));
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("400s creating a project with a blank name", () => {
+    const { create } = createProjectHandlers(makeProjectStore([]), { create: vi.fn() });
     const res = makeFakeRes();
 
     create({ body: { name: "" } } as never, res as never, (() => {}) as never);
 
     expect(res.status).toHaveBeenCalledWith(400);
   });
-
-  it("deletes an agent not referenced by any workflow", () => {
-    const agentStore = makeAgentStore([
-      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
-    ]);
-    const { remove } = createAgentHandlers(agentStore, makeWorkflowStore([]));
-    const res = makeFakeRes();
-
-    remove({ params: { id: "a" } } as never, res as never, (() => {}) as never);
-
-    expect(agentStore.delete).toHaveBeenCalledWith("a");
-    expect(res.status).toHaveBeenCalledWith(204);
-  });
-
-  it("returns 409 when deleting an agent referenced by a workflow", () => {
-    const agentStore = makeAgentStore([
-      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
-    ]);
-    const workflowStore = makeWorkflowStore([
-      { id: "w1", name: "W1", slots: { analyst: ["a"] }, createdAt: "2026-01-01T00:00:00.000Z" },
-    ]);
-    const { remove } = createAgentHandlers(agentStore, workflowStore);
-    const res = makeFakeRes();
-
-    remove({ params: { id: "a" } } as never, res as never, (() => {}) as never);
-
-    expect(agentStore.delete).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(409);
-  });
 });
 
-describe("createWorkflowHandlers", () => {
-  it("lists workflows", () => {
-    const workflowStore = makeWorkflowStore([
-      { id: "default", name: "Default", slots: {}, createdAt: "2026-01-01T00:00:00.000Z" },
+describe("createRunsHandlers", () => {
+  const run: Run = {
+    id: "r1",
+    projectId: "p1",
+    ideaText: "Build a todo app",
+    workflowId: "p1-default",
+    createdAt: "2026-09-14T00:00:00.000Z",
+    events: [sampleEvent],
+  };
+  const otherRun: Run = { ...run, id: "r2", projectId: "p1", ideaText: "Build a blog", createdAt: "2026-09-13T00:00:00.000Z" };
+
+  it("lists run summaries for the project, newest first, without events", () => {
+    const { list } = createRunsHandlers(makeRunStore([otherRun, run]));
+    const res = makeFakeRes();
+
+    list({ params: { projectId: "p1" } } as never, res as never, (() => {}) as never);
+
+    expect(res.json).toHaveBeenCalledWith([
+      { id: "r1", projectId: "p1", ideaText: "Build a todo app", workflowId: "p1-default", createdAt: "2026-09-14T00:00:00.000Z" },
+      { id: "r2", projectId: "p1", ideaText: "Build a blog", workflowId: "p1-default", createdAt: "2026-09-13T00:00:00.000Z" },
     ]);
-    const { list } = createWorkflowHandlers(workflowStore, makeAgentStore());
-    const res = makeFakeRes();
-
-    list({} as never, res as never, (() => {}) as never);
-
-    expect(res.json).toHaveBeenCalledWith(workflowStore.list());
   });
 
-  it("creates a workflow referencing only existing agents, and returns 201", () => {
-    const agentStore = makeAgentStore([
-      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
-    ]);
-    const workflowStore = makeWorkflowStore();
-    const { create } = createWorkflowHandlers(workflowStore, agentStore);
+  it("gets a single run including its events", () => {
+    const { get } = createRunsHandlers(makeRunStore([run]));
     const res = makeFakeRes();
 
-    create(
-      { body: { name: "With A", slots: { analyst: ["a"] } } } as never,
-      res as never,
-      (() => {}) as never,
-    );
+    get({ params: { projectId: "p1", runId: "r1" } } as never, res as never, (() => {}) as never);
 
-    expect(workflowStore.create).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "With A", slots: { analyst: ["a"] } }),
-    );
-    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.json).toHaveBeenCalledWith(run);
   });
 
-  it("returns 400 when a slot references an unknown agent id", () => {
-    const { create } = createWorkflowHandlers(makeWorkflowStore(), makeAgentStore());
+  it("404s getting a run that belongs to a different project", () => {
+    const { get } = createRunsHandlers(makeRunStore([run]));
     const res = makeFakeRes();
 
-    create(
-      { body: { name: "Bad", slots: { analyst: ["missing"] } } } as never,
-      res as never,
-      (() => {}) as never,
-    );
+    get({ params: { projectId: "p2", runId: "r1" } } as never, res as never, (() => {}) as never);
 
-    expect(res.status).toHaveBeenCalledWith(400);
-  });
-
-  it("returns 400 when the same agent id appears in more than one slot", () => {
-    const agentStore = makeAgentStore([
-      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
-    ]);
-    const workflowStore = makeWorkflowStore();
-    const { create } = createWorkflowHandlers(workflowStore, agentStore);
-    const res = makeFakeRes();
-
-    create(
-      { body: { name: "Dup", slots: { analyst: ["a"], architect: ["a"] } } } as never,
-      res as never,
-      (() => {}) as never,
-    );
-
-    expect(workflowStore.create).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(400);
-  });
-
-  it("creates a workflow with a custom agent after a stage outside the old fixed three", () => {
-    const agentStore = makeAgentStore([
-      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
-    ]);
-    const workflowStore = makeWorkflowStore();
-    const { create } = createWorkflowHandlers(workflowStore, agentStore);
-    const res = makeFakeRes();
-
-    create(
-      { body: { name: "After repo creation", slots: { create_repo: ["a"] } } } as never,
-      res as never,
-      (() => {}) as never,
-    );
-
-    expect(workflowStore.create).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "After repo creation", slots: { create_repo: ["a"] } }),
-    );
-    expect(res.status).toHaveBeenCalledWith(201);
-  });
-
-  it("returns 400 when a slot key isn't one of the fixed backbone stages", () => {
-    const workflowStore = makeWorkflowStore();
-    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore());
-    const res = makeFakeRes();
-
-    create(
-      { body: { name: "Bad stage", slots: { not_a_stage: [] } } } as never,
-      res as never,
-      (() => {}) as never,
-    );
-
-    expect(workflowStore.create).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(400);
-  });
-
-  it("returns 400 when the slot key is tracing_pack, since nothing can run after the pipeline's final step", () => {
-    const { create } = createWorkflowHandlers(makeWorkflowStore(), makeAgentStore());
-    const res = makeFakeRes();
-
-    create(
-      { body: { name: "Bad", slots: { tracing_pack: [] } } } as never,
-      res as never,
-      (() => {}) as never,
-    );
-
-    expect(res.status).toHaveBeenCalledWith(400);
-  });
-
-  it("rejects deleting the default workflow with 400", () => {
-    const workflowStore = makeWorkflowStore();
-    const { remove } = createWorkflowHandlers(workflowStore, makeAgentStore());
-    const res = makeFakeRes();
-
-    remove({ params: { id: "default" } } as never, res as never, (() => {}) as never);
-
-    expect(workflowStore.delete).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(400);
-  });
-
-  it("deletes a non-default workflow and returns 204", () => {
-    const workflowStore = makeWorkflowStore();
-    const { remove } = createWorkflowHandlers(workflowStore, makeAgentStore());
-    const res = makeFakeRes();
-
-    remove({ params: { id: "with-review" } } as never, res as never, (() => {}) as never);
-
-    expect(workflowStore.delete).toHaveBeenCalledWith("with-review");
-    expect(res.status).toHaveBeenCalledWith(204);
-  });
-
-  it("updates a non-default workflow and returns 200", () => {
-    const agentStore = makeAgentStore([
-      { id: "a", name: "A", instructions: "do a", repoAccess: false, createdAt: "2026-01-01T00:00:00.000Z" },
-    ]);
-    const existing = {
-      id: "w1",
-      name: "Old",
-      slots: {},
-      createdAt: "2026-01-01T00:00:00.000Z",
-    };
-    const workflowStore = makeWorkflowStore([existing]);
-    const { update } = createWorkflowHandlers(workflowStore, agentStore);
-    const res = makeFakeRes();
-
-    update(
-      {
-        params: { id: "w1" },
-        body: { name: "New", slots: { analyst: ["a"] } },
-      } as never,
-      res as never,
-      (() => {}) as never,
-    );
-
-    expect(workflowStore.update).toHaveBeenCalledWith(
-      "w1",
-      expect.objectContaining({
-        id: "w1",
-        name: "New",
-        slots: { analyst: ["a"] },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      }),
-    );
-    expect(res.status).toHaveBeenCalledWith(200);
-  });
-
-  it("rejects editing the default workflow with 400", () => {
-    const workflowStore = makeWorkflowStore();
-    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
-    const res = makeFakeRes();
-
-    update(
-      { params: { id: "default" }, body: { name: "X", slots: {} } } as never,
-      res as never,
-      (() => {}) as never,
-    );
-
-    expect(workflowStore.update).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(400);
-  });
-
-  it("returns 404 when the workflow id doesn't exist", () => {
-    const workflowStore = makeWorkflowStore([]);
-    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
-    const res = makeFakeRes();
-
-    update(
-      { params: { id: "missing" }, body: { name: "X", slots: {} } } as never,
-      res as never,
-      (() => {}) as never,
-    );
-
-    expect(workflowStore.update).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
-  it("returns 400 when the updated slots reference an unknown agent id", () => {
-    const existing = {
-      id: "w1",
-      name: "Old",
-      slots: {},
-      createdAt: "2026-01-01T00:00:00.000Z",
-    };
-    const workflowStore = makeWorkflowStore([existing]);
-    const { update } = createWorkflowHandlers(workflowStore, makeAgentStore());
+  it("404s getting an unknown run id", () => {
+    const { get } = createRunsHandlers(makeRunStore([]));
     const res = makeFakeRes();
 
-    update(
-      {
-        params: { id: "w1" },
-        body: { name: "New", slots: { analyst: ["missing"] } },
-      } as never,
-      res as never,
-      (() => {}) as never,
-    );
-
-    expect(workflowStore.update).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(400);
-  });
-
-  it("creates a workflow whose slots contain a gate entry, without requiring it to resolve to an agent", () => {
-    const workflowStore = makeWorkflowStore();
-    const { create } = createWorkflowHandlers(workflowStore, makeAgentStore());
-    const res = makeFakeRes();
-
-    create(
-      { body: { name: "With a gate", slots: { analyst: ["gate:g1"] } } } as never,
-      res as never,
-      (() => {}) as never,
-    );
-
-    expect(workflowStore.create).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "With a gate", slots: { analyst: ["gate:g1"] } }),
-    );
-    expect(res.status).toHaveBeenCalledWith(201);
-  });
-});
-
-describe("createRunHandlers with a workflowId", () => {
-  it("starts a run with the given workflowId when provided", () => {
-    const controller = { start: vi.fn(), stop: vi.fn(), resume: vi.fn(), decideGate: vi.fn() };
-    const { start } = createRunHandlers(controller);
-    const res = makeFakeRes();
-
-    start({ body: { ideaText: "Build a todo app", workflowId: "with-review" } } as never, res as never, (() => {}) as never);
-
-    expect(controller.start).toHaveBeenCalledWith("Build a todo app", "with-review");
-    expect(res.status).toHaveBeenCalledWith(204);
-  });
-});
-
-describe("createProjectHandlers", () => {
-  const older: ProjectRecord = {
-    id: "p-older",
-    ideaText: "Build a blog",
-    repoName: "idea-to-mvp-1",
-    createdAt: "2026-09-13T00:00:00.000Z",
-    events: [sampleEvent],
-  };
-  const newer: ProjectRecord = {
-    id: "p-newer",
-    ideaText: "Build a todo app",
-    repoName: "idea-to-mvp-2",
-    createdAt: "2026-09-14T00:00:00.000Z",
-    events: [],
-  };
-
-  it("lists project summaries newest-first, without their events, plus the current project id", () => {
-    const projectStore = makeProjectStore([older, newer]);
-    const controller = { getCurrentProjectId: () => "p-newer" };
-    const { list } = createProjectHandlers(projectStore, controller);
-    const res = makeFakeRes();
-
-    list({} as never, res as never, (() => {}) as never);
-
-    expect(res.json).toHaveBeenCalledWith({
-      projects: [
-        { id: "p-newer", ideaText: "Build a todo app", repoName: "idea-to-mvp-2", createdAt: "2026-09-14T00:00:00.000Z" },
-        { id: "p-older", ideaText: "Build a blog", repoName: "idea-to-mvp-1", createdAt: "2026-09-13T00:00:00.000Z" },
-      ],
-      currentProjectId: "p-newer",
-    });
-  });
-
-  it("reports currentProjectId as null when no run has started", () => {
-    const projectStore = makeProjectStore([]);
-    const controller = { getCurrentProjectId: () => undefined };
-    const { list } = createProjectHandlers(projectStore, controller);
-    const res = makeFakeRes();
-
-    list({} as never, res as never, (() => {}) as never);
-
-    expect(res.json).toHaveBeenCalledWith({ projects: [], currentProjectId: null });
-  });
-
-  it("gets a single project record including its events", () => {
-    const projectStore = makeProjectStore([older]);
-    const controller = { getCurrentProjectId: () => undefined };
-    const { get } = createProjectHandlers(projectStore, controller);
-    const res = makeFakeRes();
-
-    get({ params: { id: "p-older" } } as never, res as never, (() => {}) as never);
-
-    expect(res.json).toHaveBeenCalledWith(older);
-  });
-
-  it("404s for an unknown project id", () => {
-    const projectStore = makeProjectStore([]);
-    const controller = { getCurrentProjectId: () => undefined };
-    const { get } = createProjectHandlers(projectStore, controller);
-    const res = makeFakeRes();
-
-    get({ params: { id: "nope" } } as never, res as never, (() => {}) as never);
+    get({ params: { projectId: "p1", runId: "nope" } } as never, res as never, (() => {}) as never);
 
     expect(res.status).toHaveBeenCalledWith(404);
   });
