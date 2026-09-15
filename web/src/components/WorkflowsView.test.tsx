@@ -5,7 +5,8 @@ import { WorkflowsView } from "./WorkflowsView";
 import type { EventsByStage } from "@/lib/runEvents";
 
 const DEFAULT_WORKFLOW = {
-  id: "default",
+  id: "p1-default",
+  projectId: "p1",
   name: "Default",
   slots: {},
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -13,16 +14,16 @@ const DEFAULT_WORKFLOW = {
 
 function stubFetch(overrides: { plan?: unknown; agents?: unknown; workflows?: unknown; run?: unknown } = {}) {
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-    if (url === "/api/run/plan") {
+    if (url === "/api/projects/p1/run/plan") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(overrides.plan ?? []) });
     }
     if (url === "/api/agents") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(overrides.agents ?? []) });
     }
-    if (url === "/api/workflows") {
+    if (url === "/api/projects/p1/workflows") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(overrides.workflows ?? [DEFAULT_WORKFLOW]) });
     }
-    if (url === "/api/run" && init?.method === "POST") {
+    if (url === "/api/projects/p1/run" && init?.method === "POST") {
       return Promise.resolve(overrides.run ?? { ok: true });
     }
     return Promise.reject(new Error(`unexpected fetch to ${url}`));
@@ -54,7 +55,7 @@ const deployedEventsByStage: EventsByStage = {
 
 describe("WorkflowsView", () => {
   it("renders a node for every pipeline stage", async () => {
-    const { container } = render(<WorkflowsView eventsByStage={eventsByStage} />);
+    const { container } = render(<WorkflowsView projectId="p1" eventsByStage={eventsByStage} />);
     await waitFor(() => expect(screen.getByText("Analyst")).toBeInTheDocument());
     expect(screen.getByText("Deploy")).toBeInTheDocument();
     expect(screen.getByText("Tracing pack")).toBeInTheDocument();
@@ -63,7 +64,7 @@ describe("WorkflowsView", () => {
 
   it("opens the detail sheet with the stage's full log on click", async () => {
     const user = userEvent.setup();
-    render(<WorkflowsView eventsByStage={eventsByStage} />);
+    render(<WorkflowsView projectId="p1" eventsByStage={eventsByStage} />);
     await waitFor(() => expect(screen.getByText("Analyst")).toBeInTheDocument());
 
     await user.click(screen.getByText("Analyst"));
@@ -75,7 +76,7 @@ describe("WorkflowsView", () => {
 
   it("shows a pending, empty-log state for a stage with no events yet", async () => {
     const user = userEvent.setup();
-    render(<WorkflowsView eventsByStage={eventsByStage} />);
+    render(<WorkflowsView projectId="p1" eventsByStage={eventsByStage} />);
     await waitFor(() => expect(screen.getByText("Deploy")).toBeInTheDocument());
 
     await user.click(screen.getByText("Deploy"));
@@ -85,7 +86,7 @@ describe("WorkflowsView", () => {
   });
 
   it("shows an idea input, a pipeline picker, and Start button when idle", async () => {
-    render(<WorkflowsView eventsByStage={{}} />);
+    render(<WorkflowsView projectId="p1" eventsByStage={{}} />);
 
     expect(screen.getByLabelText("Idea & requirements")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Pipeline")).toBeInTheDocument());
@@ -93,12 +94,12 @@ describe("WorkflowsView", () => {
     expect(screen.getByRole("button", { name: "Start run" })).toBeInTheDocument();
   });
 
-  it("posts the idea text and selected workflowId to /api/run when Start is clicked", async () => {
+  it("posts the idea text and selected workflowId to /api/projects/:projectId/run when Start is clicked", async () => {
     const fetchMock = stubFetch({
       workflows: [DEFAULT_WORKFLOW, { ...DEFAULT_WORKFLOW, id: "with-review", name: "With review" }],
     });
     const user = userEvent.setup();
-    render(<WorkflowsView eventsByStage={{}} />);
+    render(<WorkflowsView projectId="p1" eventsByStage={{}} />);
     await waitFor(() => expect(screen.getByLabelText("Pipeline")).toBeInTheDocument());
 
     await user.type(screen.getByLabelText("Idea & requirements"), "Build a todo app");
@@ -106,7 +107,7 @@ describe("WorkflowsView", () => {
     await user.click(screen.getByRole("button", { name: "Start run" }));
 
     await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith("/api/run", {
+      expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ideaText: "Build a todo app", workflowId: "with-review" }),
@@ -115,14 +116,14 @@ describe("WorkflowsView", () => {
   });
 
   it("does not show the idea form once a run has started", async () => {
-    render(<WorkflowsView eventsByStage={eventsByStage} />);
+    render(<WorkflowsView projectId="p1" eventsByStage={eventsByStage} />);
     await waitFor(() => expect(screen.getByText("Analyst")).toBeInTheDocument());
 
     expect(screen.queryByLabelText("Idea & requirements")).not.toBeInTheDocument();
   });
 
   it("shows a 'Start a new run' button once the run reaches a terminal outcome", async () => {
-    render(<WorkflowsView eventsByStage={deployedEventsByStage} />);
+    render(<WorkflowsView projectId="p1" eventsByStage={deployedEventsByStage} />);
     await waitFor(() => expect(screen.getByText("Deploy")).toBeInTheDocument());
 
     expect(screen.getByRole("button", { name: "Start a new run" })).toBeInTheDocument();
@@ -131,7 +132,7 @@ describe("WorkflowsView", () => {
 
   it("reveals the idea form when 'Start a new run' is clicked", async () => {
     const user = userEvent.setup();
-    render(<WorkflowsView eventsByStage={deployedEventsByStage} />);
+    render(<WorkflowsView projectId="p1" eventsByStage={deployedEventsByStage} />);
     await waitFor(() => expect(screen.getByText("Deploy")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "Start a new run" }));
@@ -139,7 +140,7 @@ describe("WorkflowsView", () => {
     expect(screen.getByLabelText("Idea & requirements")).toBeInTheDocument();
   });
 
-  it("renders a custom stage using its agent's name as the label, resolved from /api/run/plan and /api/agents", async () => {
+  it("renders a custom stage using its agent's name as the label, resolved from /api/projects/:projectId/run/plan and /api/agents", async () => {
     stubFetch({
       plan: ["create_repo", "analyst", "custom:sec-1", "architect", "open_issue", "developer", "open_pr", "qa", "post_review", "merge", "deploy", "tracing_pack"],
       agents: [{ id: "sec-1", name: "Security Reviewer", instructions: "x", repoAccess: true, createdAt: "2026-01-01T00:00:00.000Z" }],
@@ -151,7 +152,7 @@ describe("WorkflowsView", () => {
       ],
     };
 
-    render(<WorkflowsView eventsByStage={customEventsByStage} />);
+    render(<WorkflowsView projectId="p1" eventsByStage={customEventsByStage} />);
 
     await waitFor(() => expect(screen.getByText("Security Reviewer")).toBeInTheDocument());
   });
