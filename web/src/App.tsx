@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AgentsView } from "@/components/AgentsView";
 import { Header } from "@/components/Header";
 import { PipelinesView } from "@/components/PipelinesView";
@@ -26,14 +26,21 @@ export function App() {
   const { projects, loading: projectsLoading, error: projectsError } = useProjects();
 
   // The active project id is restored from localStorage, so it can name a project
-  // that has since been deleted. Once the real list has loaded, drop an id that
+  // that has since been deleted. Once the real list has loaded, drop that id if it
   // isn't in it — otherwise every scoped view 404s and useRunEvents' EventSource
   // reconnects forever against a URL that will never exist.
+  //
+  // Scoped deliberately to the id restored at mount: ProjectSwitcher owns its own
+  // useProjects() instance, so a project the user creates there won't be in this
+  // copy of the list. Reconciling anything other than the restored id would clear
+  // a just-created project the moment it was selected.
+  const restoredProjectId = useRef(activeProjectId).current;
   useEffect(() => {
-    if (projectsLoading || projectsError || !activeProjectId) return;
-    if (projects.some((project) => project.id === activeProjectId)) return;
+    if (projectsLoading || projectsError) return;
+    if (!restoredProjectId || activeProjectId !== restoredProjectId) return;
+    if (projects.some((project) => project.id === restoredProjectId)) return;
     setActiveProjectId(null);
-  }, [projects, projectsLoading, projectsError, activeProjectId, setActiveProjectId]);
+  }, [projects, projectsLoading, projectsError, activeProjectId, restoredProjectId, setActiveProjectId]);
 
   return (
     <div className="flex h-screen bg-background">
