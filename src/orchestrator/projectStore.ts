@@ -1,28 +1,25 @@
+import { randomUUID } from "node:crypto";
 import { createJsonStore, type JsonStore } from "../jsonStore.js";
-import type { RunEvent } from "./types.js";
 
-export interface ProjectRecord {
+export interface Project {
   id: string;
-  ideaText: string;
+  name: string;
   repoName: string;
+  repo?: { owner: string; htmlUrl: string; cloneUrl: string };
   createdAt: string;
-  events: RunEvent[];
 }
 
-export type ProjectSummary = Omit<ProjectRecord, "events">;
-
-export type ProjectStore = JsonStore<ProjectRecord> & {
-  appendEvent(id: string, event: RunEvent): void;
-};
+export type ProjectStore = JsonStore<Project>;
 
 export function createProjectStore(filePath: string): ProjectStore {
-  const base = createJsonStore<ProjectRecord>(filePath, []);
-  return {
-    ...base,
-    appendEvent(id, event) {
-      const record = base.get(id);
-      if (!record) return;
-      base.update(id, { ...record, events: [...record.events, event] });
-    },
-  };
+  return createJsonStore<Project>(filePath, []);
+}
+
+export function generateRepoName(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `${slug || "project"}-${randomUUID().slice(0, 8)}`;
 }
