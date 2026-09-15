@@ -160,17 +160,33 @@ export interface AgentDefinition {
 
 export interface WorkflowDefinition {
   id: string;
+  projectId: string;
   name: string;
   slots: Partial<Record<BackboneStage, string[]>>;
   createdAt: string;
 }
 
-export interface ProjectRecord {
+export interface Project {
   id: string;
-  ideaText: string;
+  name: string;
   repoName: string;
+  repo?: { owner: string; htmlUrl: string; cloneUrl: string };
+  createdAt: string;
+}
+
+export interface Run {
+  id: string;
+  projectId: string;
+  ideaText: string;
+  workflowId: string;
   createdAt: string;
   events: RunEvent[];
 }
 
-export type ProjectSummary = Omit<ProjectRecord, "events">;
+export type RunSummary = Omit<Run, "events">;
+
+const DEFAULT_WORKFLOW_SUFFIX = "-default";
+
+export function defaultWorkflowIdFor(projectId: string): string {
+  return `${projectId}${DEFAULT_WORKFLOW_SUFFIX}`;
+}
